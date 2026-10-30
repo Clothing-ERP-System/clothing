@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ERPDOST
 
 A garment manufacturing ERP built with Next.js, React, Tailwind CSS, MySQL and JWT authentication. The workspace starts empty: it does not create sample users, products, suppliers, branches or transactions.
@@ -45,3 +46,7 @@ npm start
 ```
 
 Keep `JWT_SECRET` private and stable between restarts. Back up the MySQL database regularly.
+=======
+# clothing
+clothing erp system
+>>>>>>> origin/main

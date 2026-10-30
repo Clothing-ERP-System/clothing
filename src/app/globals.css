@@ -1,0 +1,1281 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --color-navy-950: #0B0F19;
+  --color-navy-900: #0F172A;
+  --color-navy-800: #1E293B;
+  --color-indigo-600: #4F46E5;
+  --color-indigo-700: #4338CA;
+  --color-violet-600: #7C3AED;
+  --color-teal-600: #0D9488;
+  --color-surface-page: #F8FAFC;
+  --color-surface-card: #FFFFFF;
+  --color-text-main: #0F172A;
+  --color-text-muted: #64748B;
+  --color-border-subtle: #E2E8F0;
+  --color-erp-success: #059669;
+  --color-erp-warning: #D97706;
+  --color-erp-danger: #DC2626;
+  --color-erp-info: #0284C7;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ERP DOST — Premium Design System
+   Deep navy sidebar · Lavender-blue main BG · Flowing wave/floral shapes
+   Purple, electric blue, cyan, mint, peach, pink accents
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --primary-navy: #0F172A;
+  --deep-navy: #0B0F19;
+  --primary-indigo: #6366F1;
+  --primary-indigo-deep: #4F46E5;
+  --secondary-violet: #7C3AED;
+  --accent-teal: #0D9488;
+  --accent-cyan: #06B6D4;
+  --accent-mint: #34D399;
+  --accent-peach: #FB923C;
+  --accent-pink: #F472B6;
+  --bg-page: #EEF2FF;
+  --bg-page-alt: #E8EDFB;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #FAFBFF;
+  --text-main: #1E1B4B;
+  --text-secondary: #312E81;
+  --text-muted: #6366F1;
+  --text-body: #475569;
+  --border-card: rgba(129, 140, 248, 0.18);
+  --border-input: rgba(129, 140, 248, 0.25);
+  --shadow-card: 0 2px 12px rgba(99, 102, 241, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 8px 30px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(15, 23, 42, 0.05);
+  --gradient-primary: linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #A78BFA 100%);
+  --gradient-header: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 50%, #EDE9FE 100%);
+  --gradient-wave-1: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(124, 58, 237, 0.04) 100%);
+  --gradient-wave-2: linear-gradient(135deg, rgba(167, 139, 250, 0.05) 0%, rgba(6, 182, 212, 0.03) 100%);
+  --radius-card: 1rem;
+  --radius-btn: 0.75rem;
+  --radius-input: 0.625rem;
+}
+
+/* ─── Global Reset & Body ─────────────────────────────────────────────── */
+body {
+  background: linear-gradient(160deg, #EEF2FF 0%, #E8EDFB 35%, #F0EEFF 60%, #EEF2FF 100%);
+  color: #1E293B;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* ─── Global Pointer Cursor Enforcement ────────────────────────────────── */
+/* Button & Interactive Enhancements */
+button,
+[role="button"],
+select,
+a,
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+label[for],
+.cursor-pointer {
+  cursor: pointer !important;
+}
+
+button:not(:disabled):active,
+[role="button"]:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DECORATIVE BACKGROUND SYSTEM — Flowing Waves, Floral & Gradient Shapes
+   Applied via the .erp-main-bg class on the main content wrapper
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.erp-main-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.erp-main-bg::before {
+  content: '';
+  position: fixed;
+  top: -120px;
+  right: -200px;
+  width: 700px;
+  height: 700px;
+  background: radial-gradient(ellipse at center,
+    rgba(99, 102, 241, 0.07) 0%,
+    rgba(124, 58, 237, 0.04) 40%,
+    transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  animation: floatBlob1 20s ease-in-out infinite;
+}
+
+.erp-main-bg::after {
+  content: '';
+  position: fixed;
+  bottom: -150px;
+  left: -100px;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(ellipse at center,
+    rgba(167, 139, 250, 0.06) 0%,
+    rgba(6, 182, 212, 0.03) 45%,
+    transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  animation: floatBlob2 25s ease-in-out infinite;
+}
+
+/* Additional decorative wave layer */
+.erp-wave-decoration {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  background-image:
+    radial-gradient(ellipse 55% 45% at 90% 12%, rgba(129, 140, 248, 0.09) 0%, rgba(192, 132, 252, 0.04) 50%, transparent 80%),
+    radial-gradient(ellipse 60% 40% at 10% 88%, rgba(99, 102, 241, 0.08) 0%, rgba(56, 189, 248, 0.03) 50%, transparent 80%);
+}
+
+.erp-wave-decoration::before {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: -8%;
+  width: 116%;
+  height: 380px;
+  background: linear-gradient(180deg,
+    rgba(129, 140, 248, 0.05) 0%,
+    rgba(167, 139, 250, 0.03) 50%,
+    transparent 100%);
+  border-radius: 40% 60% 70% 30% / 40% 50% 50% 60%;
+  transform: rotate(-3deg);
+  animation: waveFloat 18s ease-in-out infinite;
+}
+
+.erp-wave-decoration::after {
+  content: '';
+  position: absolute;
+  bottom: 8%;
+  right: -8%;
+  width: 95%;
+  height: 320px;
+  background: linear-gradient(0deg,
+    rgba(196, 181, 253, 0.05) 0%,
+    rgba(6, 182, 212, 0.02) 50%,
+    transparent 100%);
+  border-radius: 60% 40% 30% 70% / 50% 60% 40% 50%;
+  transform: rotate(2deg);
+  animation: waveFloat2 22s ease-in-out infinite;
+}
+
+/* Botanical Floral Leaf & Wave Watermarks across the page */
+.erp-floral-dots {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='220' viewBox='0 0 160 220' fill='none'%3E%3Cpath d='M80 210 C 80 120, 110 70, 140 20' stroke='%23818cf8' stroke-width='2' stroke-opacity='0.18' stroke-linecap='round'/%3E%3Cpath d='M82 165 C 55 145, 38 110, 48 72 C 68 88, 78 128, 82 165 Z' fill='%23818cf8' fill-opacity='0.08' stroke='%23818cf8' stroke-width='0.8' stroke-opacity='0.15'/%3E%3Cpath d='M90 128 C 118 108, 140 82, 145 55 C 122 60, 105 90, 90 128 Z' fill='%23c084fc' fill-opacity='0.1' stroke='%23c084fc' stroke-width='0.8' stroke-opacity='0.18'/%3E%3Cpath d='M86 90 C 62 72, 54 45, 66 22 C 82 38, 86 68, 86 90 Z' fill='%23818cf8' fill-opacity='0.09' stroke='%23818cf8' stroke-width='0.8' stroke-opacity='0.15'/%3E%3Cpath d='M132 30 C 140 18, 145 8, 142 2 C 132 8, 126 18, 132 30 Z' fill='%23c084fc' fill-opacity='0.15'/%3E%3Ccircle cx='128' cy='38' r='3.5' fill='%23818cf8' fill-opacity='0.18'/%3E%3Ccircle cx='46' cy='55' r='3' fill='%23c084fc' fill-opacity='0.16'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='140' viewBox='0 0 240 140' fill='none'%3E%3Cpath d='M0 140 C 60 85, 130 130, 240 70 L 240 140 Z' fill='%23818cf8' fill-opacity='0.05'/%3E%3Cpath d='M50 140 C 110 100, 170 135, 240 100 L 240 140 Z' fill='%23c084fc' fill-opacity='0.04'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat;
+  background-position: top 40px right 30px, bottom 0 left 0;
+}
+
+.erp-floral-dots::before {
+  content: '';
+  position: absolute;
+  top: 8%;
+  right: 12%;
+  width: 8px;
+  height: 8px;
+  background: rgba(99, 102, 241, 0.14);
+  border-radius: 50%;
+  box-shadow:
+    -60px 40px 0 rgba(167, 139, 250, 0.1),
+    -120px 80px 0 2px rgba(99, 102, 241, 0.08),
+    40px 120px 0 rgba(196, 181, 253, 0.12),
+    -200px 160px 0 3px rgba(124, 58, 237, 0.07),
+    80px 200px 0 rgba(6, 182, 212, 0.08),
+    -280px 50px 0 2px rgba(244, 114, 182, 0.08),
+    160px 280px 0 rgba(52, 211, 153, 0.08),
+    -40px 320px 0 2px rgba(99, 102, 241, 0.07);
+  animation: floralPulse 12s ease-in-out infinite;
+}
+
+.erp-floral-dots::after {
+  content: '';
+  position: absolute;
+  bottom: 15%;
+  left: 8%;
+  width: 6px;
+  height: 6px;
+  background: rgba(167, 139, 250, 0.12);
+  border-radius: 50%;
+  box-shadow:
+    80px -30px 0 rgba(99, 102, 241, 0.1),
+    160px -90px 0 2px rgba(124, 58, 237, 0.08),
+    -30px -150px 0 rgba(244, 114, 182, 0.09),
+    240px -40px 0 3px rgba(6, 182, 212, 0.07),
+    120px -200px 0 rgba(52, 211, 153, 0.08),
+    300px -130px 0 2px rgba(167, 139, 250, 0.07);
+  animation: floralPulse2 15s ease-in-out infinite;
+}
+
+/* ─── Animations ───────────────────────────────────────────────────────── */
+@keyframes floatBlob1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-30px, 20px) scale(1.05); }
+  66% { transform: translate(20px, -30px) scale(0.95); }
+}
+
+@keyframes floatBlob2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, -20px) scale(1.03); }
+  66% { transform: translate(-20px, 25px) scale(0.97); }
+}
+
+@keyframes waveFloat {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50% { transform: rotate(-1deg) translateY(-15px); }
+}
+
+@keyframes waveFloat2 {
+  0%, 100% { transform: rotate(2deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(10px); }
+}
+
+@keyframes floralPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+@keyframes floralPulse2 {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CARD SYSTEM — Premium white cards with blue-tinted borders & soft shadows
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.erp-card {
+  background: #FFFFFF;
+  border: 1px solid rgba(129, 140, 248, 0.15);
+  border-radius: 1rem;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.erp-card:hover {
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(15, 23, 42, 0.05);
+  border-color: rgba(129, 140, 248, 0.25);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TOPBAR — Light lavender with subtle blue tint
+   ════════════════════════════════════════════════════════════════════════════ */
+
+header.sticky {
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, 0.97) 0%,
+    rgba(238, 242, 255, 0.95) 50%,
+    rgba(237, 233, 254, 0.93) 100%) !important;
+  backdrop-filter: blur(20px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  border-bottom: 1px solid rgba(129, 140, 248, 0.12) !important;
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.04), 0 4px 12px rgba(99, 102, 241, 0.02) !important;
+}
+
+/* Search input in topbar */
+header.sticky input[type="search"] {
+  background: rgba(238, 242, 255, 0.6) !important;
+  border-color: rgba(129, 140, 248, 0.2) !important;
+  border-radius: 0.75rem !important;
+  transition: all 0.2s ease !important;
+}
+
+header.sticky input[type="search"]:focus {
+  background: #FFFFFF !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Topbar buttons hover */
+header.sticky button:hover {
+  background: rgba(238, 242, 255, 0.7) !important;
+}
+
+/* Branch selector label */
+header.sticky label {
+  border-color: rgba(129, 140, 248, 0.15) !important;
+  background: rgba(255, 255, 255, 0.8) !important;
+  border-radius: 0.625rem !important;
+  transition: all 0.2s ease !important;
+}
+
+header.sticky label:hover {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  background: rgba(238, 242, 255, 0.9) !important;
+}
+
+/* Profile button in topbar */
+header.sticky .flex.items-center.gap-2.rounded-xl.border {
+  border-color: rgba(129, 140, 248, 0.15) !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  transition: all 0.2s ease !important;
+}
+
+header.sticky .flex.items-center.gap-2.rounded-xl.border:hover {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  background: rgba(238, 242, 255, 0.9) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SIDEBAR — Deep navy with violet accent (keep structure, enhance gradient)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+aside.fixed {
+  background: linear-gradient(180deg, #0B0F19 0%, #0F1629 50%, #0B0F19 100%) !important;
+}
+
+/* Sidebar brand header gradient */
+aside.fixed > div:first-child {
+  background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 60%, #312E81 100%) !important;
+  border-bottom-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Active sidebar item — gradient blue-violet */
+aside.fixed a.bg-gradient-to-r {
+  background: linear-gradient(135deg, #4F46E5 0%, #6366F1 50%, #7C3AED 100%) !important;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3), 0 0 0 1px rgba(129, 140, 248, 0.2) !important;
+}
+
+/* Sidebar footer */
+aside.fixed > div:last-child {
+  background: linear-gradient(180deg, #080C14 0%, #060912 100%) !important;
+  border-top-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Sidebar scrollbar */
+aside.fixed ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside.fixed ::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 9999px;
+}
+
+aside.fixed ::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CONTENT CARDS — White cards used in all pages (bg-white rounded-2xl etc.)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Target all white cards with borders in the main content area */
+main .bg-white {
+  background: #FFFFFF !important;
+  border-color: rgba(129, 140, 248, 0.15) !important;
+  box-shadow: var(--shadow-card) !important;
+  position: relative;
+  z-index: 1;
+}
+
+main .bg-white:hover {
+  box-shadow: var(--shadow-card-hover) !important;
+  border-color: rgba(129, 140, 248, 0.22) !important;
+}
+
+/* Cards inside main that use border-slate-200 */
+main .border-slate-200,
+main .border-slate-200\/90,
+main .border-slate-200\/80 {
+  border-color: rgba(129, 140, 248, 0.15) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   KPI / STAT CARDS — Premium gradient icon backgrounds
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Emerald icon bg (Revenue) */
+main .bg-emerald-50 {
+  background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%) !important;
+}
+
+/* Indigo icon bg (Production) */
+main .bg-indigo-50 {
+  background: linear-gradient(135deg, #E0E7FF 0%, #C7D2FE 100%) !important;
+}
+
+/* Teal icon bg (Fabric) */
+main .bg-teal-50 {
+  background: linear-gradient(135deg, #CCFBF1 0%, #99F6E4 100%) !important;
+}
+
+/* Sky icon bg (Quality) */
+main .bg-sky-50 {
+  background: linear-gradient(135deg, #E0F2FE 0%, #BAE6FD 100%) !important;
+}
+
+/* Badge pills */
+main .bg-indigo-50.text-indigo-600,
+main .bg-indigo-50[class*="text-[#4F46E5]"] {
+  background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%) !important;
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+main .bg-teal-50.text-teal-700 {
+  background: linear-gradient(135deg, #F0FDFA 0%, #CCFBF1 100%) !important;
+  border-color: rgba(13, 148, 136, 0.15) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BUTTONS — Primary (indigo-violet gradient) & Secondary styles
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Primary indigo buttons */
+main .bg-indigo-600,
+main [class*="bg-[#4F46E5]"] {
+  background: linear-gradient(135deg, #6366F1 0%, #4F46E5 50%, #7C3AED 100%) !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25), 0 1px 3px rgba(99, 102, 241, 0.15) !important;
+  border: none !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+main .bg-indigo-600:hover,
+main [class*="bg-[#4F46E5]"]:hover {
+  background: linear-gradient(135deg, #4F46E5 0%, #4338CA 50%, #6D28D9 100%) !important;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35), 0 2px 5px rgba(99, 102, 241, 0.2) !important;
+  transform: translateY(-1px);
+}
+
+/* Dark navy button */
+main .bg-slate-900 {
+  background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%) !important;
+  box-shadow: 0 4px 14px rgba(30, 27, 75, 0.25) !important;
+}
+
+main .bg-slate-900:hover {
+  background: linear-gradient(135deg, #312E81 0%, #3730A3 100%) !important;
+  box-shadow: 0 6px 20px rgba(30, 27, 75, 0.35) !important;
+}
+
+/* Teal accent button */
+main .bg-teal-600 {
+  background: linear-gradient(135deg, #0D9488 0%, #0891B2 100%) !important;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.25) !important;
+}
+
+main .bg-teal-600:hover {
+  background: linear-gradient(135deg, #0F766E 0%, #0E7490 100%) !important;
+  box-shadow: 0 6px 20px rgba(13, 148, 136, 0.35) !important;
+}
+
+/* Secondary / outline buttons */
+main button.border-slate-200,
+main a.border-slate-200 {
+  border-color: rgba(129, 140, 248, 0.2) !important;
+  transition: all 0.2s ease !important;
+}
+
+main button.border-slate-200:hover,
+main a.border-slate-200:hover {
+  border-color: rgba(99, 102, 241, 0.35) !important;
+  background: rgba(238, 242, 255, 0.5) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FORMS & INPUTS — Refined with blue-tinted borders
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main input[type="text"],
+main input[type="email"],
+main input[type="password"],
+main input[type="number"],
+main input[type="tel"],
+main input[type="url"],
+main input[type="search"],
+main input[type="date"],
+main input[type="datetime-local"],
+main input[type="month"],
+main input[type="time"],
+main input[type="week"],
+main textarea,
+main select {
+  border: 1px solid rgba(129, 140, 248, 0.2) !important;
+  border-radius: var(--radius-input) !important;
+  background: rgba(248, 250, 255, 0.5) !important;
+  transition: all 0.2s ease !important;
+  font-family: 'Plus Jakarta Sans', sans-serif !important;
+}
+
+main input:focus,
+main textarea:focus,
+main select:focus {
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08) !important;
+  background: #FFFFFF !important;
+  outline: none !important;
+}
+
+/* Form labels */
+main label {
+  font-weight: 600;
+  color: #312E81;
+  font-size: 0.8125rem;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TABLES — Clean with blue-tinted headers and refined row styling
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+main thead {
+  position: relative;
+}
+
+main thead th {
+  background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%) !important;
+  color: #312E81 !important;
+  font-weight: 700 !important;
+  font-size: 0.6875rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 0.75rem 1rem !important;
+  border-bottom: 2px solid rgba(129, 140, 248, 0.15) !important;
+  white-space: nowrap;
+}
+
+main thead th:first-child {
+  border-radius: 0.5rem 0 0 0;
+}
+
+main thead th:last-child {
+  border-radius: 0 0.5rem 0 0;
+}
+
+main tbody td {
+  padding: 0.75rem 1rem !important;
+  border-bottom: 1px solid rgba(129, 140, 248, 0.08) !important;
+  font-size: 0.8125rem !important;
+  color: #334155 !important;
+  vertical-align: middle;
+}
+
+main tbody tr {
+  transition: background-color 0.15s ease !important;
+}
+
+main tbody tr:hover {
+  background: rgba(238, 242, 255, 0.4) !important;
+}
+
+main tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TABS — Active tab with gradient underline
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Tab buttons - common pattern in the codebase: button with bg color for active tab */
+main .bg-indigo-600.text-white[class*="rounded"],
+main [class*="bg-[#4F46E5]"].text-white[class*="rounded"] {
+  background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%) !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Inactive tab buttons */
+main .bg-slate-100,
+main .bg-slate-50 {
+  background: rgba(238, 242, 255, 0.5) !important;
+  transition: all 0.2s ease !important;
+}
+
+main .bg-slate-100:hover,
+main .bg-slate-50:hover {
+  background: rgba(224, 231, 255, 0.6) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MODALS — Refined with lavender overlay and premium card styling
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Modal backdrop */
+.fixed.inset-0.z-50 {
+  background: rgba(15, 23, 42, 0.5) !important;
+  backdrop-filter: blur(8px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2) !important;
+}
+
+/* Modal card */
+.fixed.inset-0.z-50 > div:not(.pointer-events-none) {
+  border: 1px solid rgba(129, 140, 248, 0.15) !important;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25), 0 12px 40px rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Modal header */
+.fixed.inset-0.z-50 [class*="bg-[#F8FAFC]"],
+.fixed.inset-0.z-50 .border-b.border-slate-100 {
+  background: linear-gradient(135deg, #F8FAFF 0%, #EEF2FF 100%) !important;
+  border-bottom-color: rgba(129, 140, 248, 0.12) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NOTIFICATION DROPDOWN — Premium styling
+   ════════════════════════════════════════════════════════════════════════════ */
+
+header .absolute.right-0.top-12.z-50 {
+  border: 1px solid rgba(129, 140, 248, 0.15) !important;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12), 0 8px 20px rgba(99, 102, 241, 0.06) !important;
+  border-radius: 1rem !important;
+}
+
+header .absolute.right-0.top-12.z-50 .border-b {
+  border-color: rgba(129, 140, 248, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STATUS BADGES & PILLS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Amber/Warning badges */
+main .bg-amber-100 {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%) !important;
+}
+
+/* Emerald/Success badges */
+main .bg-emerald-100,
+main .bg-green-100 {
+  background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%) !important;
+}
+
+/* Rose/Danger badges */
+main .bg-rose-100,
+main .bg-red-100 {
+  background: linear-gradient(135deg, #FFE4E6 0%, #FECDD3 100%) !important;
+}
+
+/* Blue/Info badges */
+main .bg-blue-100,
+main .bg-sky-100 {
+  background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CHART BAR VISUALIZATION — Purple/Blue gradient bars
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Production bar chart bars */
+main .bg-indigo-600.rounded-t-xl {
+  background: linear-gradient(180deg, #6366F1 0%, #4F46E5 50%, #7C3AED 100%) !important;
+  box-shadow: 0 -2px 8px rgba(99, 102, 241, 0.2) !important;
+}
+
+main .bg-indigo-600.rounded-t-xl:hover,
+main .group:hover .bg-indigo-600.rounded-t-xl,
+main .group-hover\:bg-indigo-700 {
+  background: linear-gradient(180deg, #818CF8 0%, #6366F1 50%, #8B5CF6 100%) !important;
+}
+
+/* Bar chart base */
+main .bg-slate-100.rounded-t-xl {
+  background: rgba(238, 242, 255, 0.6) !important;
+}
+
+/* Legend color swatch */
+main .bg-indigo-600.w-3.h-3 {
+  background: linear-gradient(135deg, #6366F1 0%, #7C3AED 100%) !important;
+  border-radius: 4px !important;
+}
+
+main .bg-slate-200.w-3.h-3 {
+  background: rgba(199, 210, 254, 0.4) !important;
+  border-radius: 4px !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK HERO / CTA CARDS — Quick Launchpad & Welcome Banners
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .bg-gradient-to-r.from-indigo-900 {
+  background: linear-gradient(135deg, #1E1B4B 0%, #312E81 35%, #3730A3 70%, #1E1B4B 100%) !important;
+  border: 1px solid rgba(129, 140, 248, 0.15) !important;
+  box-shadow: 0 8px 30px rgba(30, 27, 75, 0.3), 0 0 0 1px rgba(129, 140, 248, 0.1) inset !important;
+}
+
+/* Glassmorphism cards inside dark banners */
+main .bg-white\/10 {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(8px) !important;
+  transition: all 0.25s ease !important;
+}
+
+main .bg-white\/10:hover,
+main .hover\:bg-white\/20:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   INNER ITEMS — Alert items, audit items, etc.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Items with bg-slate-50 inside cards */
+main .bg-slate-50 {
+  background: rgba(238, 242, 255, 0.4) !important;
+  border-color: rgba(129, 140, 248, 0.12) !important;
+}
+
+/* Divider lines inside cards */
+main .border-t.border-slate-100 {
+  border-color: rgba(129, 140, 248, 0.1) !important;
+}
+
+main .border-b.border-slate-100 {
+  border-color: rgba(129, 140, 248, 0.1) !important;
+}
+
+main .divide-slate-100 > * + * {
+  border-color: rgba(129, 140, 248, 0.08) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TOAST NOTIFICATIONS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.fixed.top-20.right-4 > div,
+.fixed.top-20.right-6 > div {
+  border-radius: 0 0.75rem 0.75rem 0 !important;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.1), 0 4px 12px rgba(99, 102, 241, 0.05) !important;
+  border-color: rgba(129, 140, 248, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PAGINATION & EMPTY STATES
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Empty state icons */
+main .text-slate-300 {
+  color: rgba(129, 140, 248, 0.35) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY — Consistent colors following premium design
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Headings in main content */
+main h1 {
+  color: #1E1B4B !important;
+  letter-spacing: -0.025em;
+}
+
+main h2 {
+  color: #1E1B4B !important;
+}
+
+main h3 {
+  color: #312E81 !important;
+}
+
+/* Muted text uses indigo tone */
+main .text-slate-500 {
+  color: #6B7280 !important;
+}
+
+/* Links & accent text */
+main .text-indigo-600 {
+  color: #6366F1 !important;
+}
+
+main .text-indigo-700 {
+  color: #4F46E5 !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LOADING SKELETON SHIMMER
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(238, 242, 255, 0.5) 0%,
+    rgba(199, 210, 254, 0.3) 50%,
+    rgba(238, 242, 255, 0.5) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LOGIN PAGE — Premium override for dark login
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main.bg-slate-950,
+.bg-slate-950 {
+  background: linear-gradient(135deg, #0B0F19 0%, #1E1B4B 50%, #0B0F19 100%) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   POS PAGE — Special consideration for retail interface
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Ensure POS grid items maintain their look */
+main .grid .bg-white.rounded-xl,
+main .grid .bg-white.rounded-2xl {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HOVER EFFECTS — Micro-interactions across all interactive elements
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Links in content */
+main a:not(.bg-indigo-600):not(.bg-teal-600):not(.bg-slate-900) {
+  transition: color 0.15s ease, transform 0.15s ease !important;
+}
+
+/* Interactive text links */
+main .text-indigo-600:hover {
+  color: #4F46E5 !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CUSTOM SCROLLBAR — Premium indigo-tinted scrollbar
+   ════════════════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(238, 242, 255, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(129, 140, 248, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.4);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   RESPONSIVE REFINEMENTS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 640px) {
+  main .bg-white {
+    border-radius: 0.75rem !important;
+  }
+
+  main thead th {
+    font-size: 0.625rem !important;
+    padding: 0.5rem 0.625rem !important;
+  }
+
+  main tbody td {
+    font-size: 0.75rem !important;
+    padding: 0.5rem 0.625rem !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PRINT STYLES — Keep print clean
+   ════════════════════════════════════════════════════════════════════════════ */
+
+@media print {
+  body {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .erp-main-bg::before,
+  .erp-main-bg::after,
+  .erp-wave-decoration,
+  .erp-floral-dots {
+    display: none !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SELECTION COLORS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+::selection {
+  background: rgba(99, 102, 241, 0.2);
+  color: #1E1B4B;
+}
+
+::-moz-selection {
+  background: rgba(99, 102, 241, 0.2);
+  color: #1E1B4B;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LOGIN PAGE — Premium dark gradient with enhanced decorative blobs
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main.relative.grid.min-h-screen.overflow-hidden.bg-slate-950 {
+  background: linear-gradient(160deg, #0B0F19 0%, #1E1B4B 40%, #312E81 60%, #0B0F19 100%) !important;
+}
+
+/* Login gradient blobs */
+main .bg-indigo-600\/20 {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, rgba(124, 58, 237, 0.15) 50%, transparent 70%) !important;
+}
+
+main .bg-violet-600\/15 {
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.2) 0%, rgba(167, 139, 250, 0.1) 50%, transparent 70%) !important;
+}
+
+/* Login left panel gradient */
+main .bg-gradient-to-br.from-indigo-700 {
+  background: linear-gradient(135deg, #4338CA 0%, #3730A3 40%, #1E1B4B 100%) !important;
+}
+
+/* Login form card */
+main .bg-white.shadow-2xl {
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.4), 0 0 0 1px rgba(129, 140, 248, 0.1) !important;
+}
+
+/* Login button */
+main .bg-indigo-600.shadow-lg {
+  background: linear-gradient(135deg, #6366F1 0%, #4F46E5 50%, #7C3AED 100%) !important;
+  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.35) !important;
+}
+
+main .bg-indigo-600.shadow-lg:hover {
+  background: linear-gradient(135deg, #4F46E5 0%, #4338CA 50%, #6D28D9 100%) !important;
+  box-shadow: 0 10px 30px rgba(99, 102, 241, 0.45) !important;
+}
+
+/* Login form inputs */
+main input.border-slate-200.bg-white {
+  border-color: rgba(129, 140, 248, 0.2) !important;
+  transition: all 0.2s ease !important;
+}
+
+main input.border-slate-200.bg-white:focus {
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.08) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SETTINGS PAGE — Dark hero section enhancement
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .bg-gradient-to-br.from-slate-950 {
+  background: linear-gradient(135deg, #1E1B4B 0%, #312E81 40%, #3730A3 70%, #1E1B4B 100%) !important;
+  box-shadow: 0 8px 30px rgba(30, 27, 75, 0.3), 0 0 0 1px rgba(129, 140, 248, 0.1) inset !important;
+}
+
+/* Settings page service cards */
+main .bg-white\/10[class*="rounded"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HOVER STATE REFINEMENTS — Focus rings & border interactions
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Hover border color transitions for cards */
+main .hover\:border-indigo-300:hover {
+  border-color: rgba(129, 140, 248, 0.35) !important;
+}
+
+main .hover\:border-indigo-200:hover {
+  border-color: rgba(129, 140, 248, 0.3) !important;
+}
+
+/* Focus rings matching the new theme */
+main .focus\:ring-indigo-500\/10:focus,
+main .focus\:ring-4:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+}
+
+main .focus\:border-indigo-300:focus {
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   GRADIENT ACCENT UTILITIES — For inline usage
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Purple gradient badge pills */
+main .bg-indigo-500\/30 {
+  background: rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Emerald badge in sidebar */
+main .bg-emerald-500\/20 {
+  background: rgba(52, 211, 153, 0.15) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TOOLTIP / POPOVER BACKGROUNDS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .bg-slate-900.text-white.font-mono {
+  background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BORDER DIVIDERS — Subtle lavender-tinted dividers across all pages
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .border-t.border-slate-200 {
+  border-color: rgba(129, 140, 248, 0.12) !important;
+}
+
+main .border-b.border-slate-200 {
+  border-color: rgba(129, 140, 248, 0.12) !important;
+}
+
+main .divide-y.divide-slate-200 > * + * {
+  border-color: rgba(129, 140, 248, 0.1) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   RECEIPT MODAL — Keep the dashed border for print receipts
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .border-dashed.border-slate-300 {
+  border-color: rgba(129, 140, 248, 0.2) !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   REUSABLE DECORATIVE CARD SYSTEM ACROSS THE ENTIRE ERP
+   Adds actual flowing waves and botanical leaf artwork to all cards, panels & widgets
+   ════════════════════════════════════════════════════════════════════════════ */
+
+main .bg-white,
+.erp-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(129, 140, 248, 0.18) !important;
+  box-shadow: 0 2px 14px rgba(99, 102, 241, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+}
+
+/* Ensure all child elements inside cards stay above decorative layers */
+main .bg-white > *,
+.erp-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 1. Botanical Leaf Branch Watermark (Top-Right Corner) */
+main .bg-white::before,
+.erp-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 90px;
+  height: 95px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 95' fill='none'%3E%3Cpath d='M85 5 C 65 22, 45 50, 32 90' stroke='%23818CF8' stroke-width='1.5' stroke-opacity='0.22' stroke-linecap='round'/%3E%3Cpath d='M64 26 C 48 18, 42 32, 58 39 C 68 43, 72 34, 64 26 Z' fill='%23818CF8' fill-opacity='0.12' stroke='%23818CF8' stroke-width='0.8' stroke-opacity='0.2'/%3E%3Cpath d='M48 48 C 34 38, 28 54, 44 60 C 54 64, 58 54, 48 48 Z' fill='%23C084FC' fill-opacity='0.12' stroke='%23C084FC' stroke-width='0.8' stroke-opacity='0.2'/%3E%3Cpath d='M70 42 C 84 34, 88 48, 76 54 C 68 58, 64 50, 70 42 Z' fill='%2338BDF8' fill-opacity='0.12' stroke='%2338BDF8' stroke-width='0.8' stroke-opacity='0.2'/%3E%3Cpath d='M36 72 C 24 64, 20 78, 32 82 C 40 85, 44 78, 36 72 Z' fill='%23818CF8' fill-opacity='0.1'/%3E%3Ccircle cx='80' cy='15' r='2' fill='%23C084FC' fill-opacity='0.25'/%3E%3Ccircle cx='22' cy='52' r='1.8' fill='%23818CF8' fill-opacity='0.22'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: top right;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+
+/* 2. Flowing Abstract Waves (Bottom-Right Corner) */
+main .bg-white::after,
+.erp-card::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 170px;
+  height: 80px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 42, 105 75, 170 38 L 170 80 Z' fill='url(%23cardWave1)'/%3E%3Cpath d='M30 80 C 75 52, 125 74, 170 56 L 170 80 Z' fill='url(%23cardWave2)'/%3E%3Cdefs%3E%3ClinearGradient id='cardWave1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23818CF8' stop-opacity='0.18'/%3E%3Cstop offset='50%25' stop-color='%23C084FC' stop-opacity='0.12'/%3E%3Cstop offset='100%25' stop-color='%23F472B6' stop-opacity='0.06'/%3E%3C/linearGradient%3E%3ClinearGradient id='cardWave2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2338BDF8' stop-opacity='0.16'/%3E%3Cstop offset='100%25' stop-color='%23818CF8' stop-opacity='0.06'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: bottom right;
+  background-size: contain;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.9;
+}
+
+/* ─── Coordinated Accent Wave Card Modifiers ────────────────────────────── */
+
+/* Mint / Cyan Wave Accent (Sales, Inventory, Profit) */
+.erp-card-mint::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 40, 100 70, 170 35 L 170 80 Z' fill='url(%23mintW1)'/%3E%3Cpath d='M35 80 C 75 50, 120 72, 170 55 L 170 80 Z' fill='url(%23mintW2)'/%3E%3Cdefs%3E%3ClinearGradient id='mintW1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2334D399' stop-opacity='0.28'/%3E%3Cstop offset='100%25' stop-color='%2306B6D4' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3ClinearGradient id='mintW2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23059669' stop-opacity='0.22'/%3E%3Cstop offset='100%25' stop-color='%2310B981' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E") !important;
+}
+
+/* Violet / Lavender Wave Accent (Production, Stitching, Analytics) */
+.erp-card-violet::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 35, 105 68, 170 32 L 170 80 Z' fill='url(%23vioW1)'/%3E%3Cpath d='M35 80 C 80 48, 125 70, 170 52 L 170 80 Z' fill='url(%23vioW2)'/%3E%3Cdefs%3E%3ClinearGradient id='vioW1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23818CF8' stop-opacity='0.28'/%3E%3Cstop offset='100%25' stop-color='%23C084FC' stop-opacity='0.14'/%3E%3C/linearGradient%3E%3ClinearGradient id='vioW2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236366F1' stop-opacity='0.22'/%3E%3Cstop offset='100%25' stop-color='%23A855F7' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E") !important;
+}
+
+/* Peach / Amber Wave Accent (Fabric Stock, Warehouses, Orders) */
+.erp-card-peach::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 42, 100 72, 170 36 L 170 80 Z' fill='url(%23pchW1)'/%3E%3Cpath d='M35 80 C 75 52, 120 74, 170 56 L 170 80 Z' fill='url(%23pchW2)'/%3E%3Cdefs%3E%3ClinearGradient id='pchW1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23FB923C' stop-opacity='0.28'/%3E%3Cstop offset='100%25' stop-color='%23FBBF24' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3ClinearGradient id='pchW2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23EA580C' stop-opacity='0.22'/%3E%3Cstop offset='100%25' stop-color='%23F59E0B' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E") !important;
+}
+
+/* Pink / Rose Wave Accent (Quality, QC Pass, Finishing) */
+.erp-card-pink::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 48 38, 105 70, 170 34 L 170 80 Z' fill='url(%23pnkW1)'/%3E%3Cpath d='M35 80 C 80 48, 125 72, 170 54 L 170 80 Z' fill='url(%23pnkW2)'/%3E%3Cdefs%3E%3ClinearGradient id='pnkW1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23F472B6' stop-opacity='0.28'/%3E%3Cstop offset='100%25' stop-color='%23FB7185' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3ClinearGradient id='pnkW2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23DB2777' stop-opacity='0.22'/%3E%3Cstop offset='100%25' stop-color='%23E11D48' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E") !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK MODE SYSTEM — Coordinated deep navy & luminous accents
+   ════════════════════════════════════════════════════════════════════════════ */
+
+html.dark body {
+  background: linear-gradient(160deg, #070A12 0%, #0B0F19 40%, #0E1424 75%, #070A12 100%) !important;
+  color: #F1F5F9 !important;
+}
+
+html.dark header {
+  background: rgba(11, 15, 25, 0.94) !important;
+  border-bottom-color: rgba(99, 102, 241, 0.22) !important;
+}
+
+html.dark main .bg-white,
+html.dark .erp-card {
+  background: #0F172A !important;
+  border-color: rgba(99, 102, 241, 0.24) !important;
+  color: #F1F5F9 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Dark Mode Botanical Leaves (Luminous Electric Blue / Violet) */
+html.dark main .bg-white::before,
+html.dark .erp-card::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 95' fill='none'%3E%3Cpath d='M85 5 C 65 22, 45 50, 32 90' stroke='%2338BDF8' stroke-width='1.5' stroke-opacity='0.3' stroke-linecap='round'/%3E%3Cpath d='M64 26 C 48 18, 42 32, 58 39 C 68 43, 72 34, 64 26 Z' fill='%2338BDF8' fill-opacity='0.16' stroke='%2338BDF8' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Cpath d='M48 48 C 34 38, 28 54, 44 60 C 54 64, 58 54, 48 48 Z' fill='%23C084FC' fill-opacity='0.16' stroke='%23C084FC' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Cpath d='M70 42 C 84 34, 88 48, 76 54 C 68 58, 64 50, 70 42 Z' fill='%23818CF8' fill-opacity='0.16' stroke='%23818CF8' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Ccircle cx='80' cy='15' r='2' fill='%2338BDF8' fill-opacity='0.35'/%3E%3Ccircle cx='22' cy='52' r='1.8' fill='%23C084FC' fill-opacity='0.3'/%3E%3C/svg%3E");
+  opacity: 0.6;
+}
+
+/* Dark Mode Flowing Waves (Luminous Electric Blue / Violet Curves) */
+html.dark main .bg-white::after,
+html.dark .erp-card::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 42, 105 75, 170 38 L 170 80 Z' fill='url(%23darkWave1)'/%3E%3Cpath d='M30 80 C 75 52, 125 74, 170 56 L 170 80 Z' fill='url(%23darkWave2)'/%3E%3Cdefs%3E%3ClinearGradient id='darkWave1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236366F1' stop-opacity='0.25'/%3E%3Cstop offset='50%25' stop-color='%238B5CF6' stop-opacity='0.18'/%3E%3Cstop offset='100%25' stop-color='%2338BDF8' stop-opacity='0.1'/%3E%3C/linearGradient%3E%3ClinearGradient id='darkWave2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2338BDF8' stop-opacity='0.2'/%3E%3Cstop offset='100%25' stop-color='%236366F1' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+  opacity: 0.7;
+}
+
+html.dark main h1,
+html.dark main h2,
+html.dark main h3 {
+  color: #FFFFFF !important;
+}
+
+html.dark main .text-slate-900 {
+  color: #F8FAFC !important;
+}
+
+html.dark main .text-slate-800 {
+  color: #F1F5F9 !important;
+}
+
+html.dark main .text-slate-700 {
+  color: #E2E8F0 !important;
+}
+
+html.dark main .text-slate-600 {
+  color: #CBD5E1 !important;
+}
+
+html.dark main .text-slate-500 {
+  color: #94A3B8 !important;
+}
+
+html.dark main .bg-slate-50,
+html.dark main .bg-slate-100 {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+html.dark main input,
+html.dark main select,
+html.dark main textarea {
+  background: #1E293B !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  color: #F8FAFC !important;
+}
+
+html.dark main thead th {
+  background: linear-gradient(135deg, #1E1B4B 0%, #172554 100%) !important;
+  color: #E2E8F0 !important;
+  border-bottom-color: rgba(99, 102, 241, 0.25) !important;
+}
+
+html.dark main tbody td {
+  color: #CBD5E1 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark main tbody tr:hover {
+  background: rgba(99, 102, 241, 0.1) !important;
+}
+
+
+

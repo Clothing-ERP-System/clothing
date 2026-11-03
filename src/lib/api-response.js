@@ -27,3 +27,15 @@ export function forbiddenResponse(message = 'You do not have permission to perfo
 export function notFoundResponse(message = 'Requested resource not found') {
   return errorResponse(message, 404);
 }
+
+export function fromError(error, fallbackStatus = 500) {
+  if (error instanceof SyntaxError) {
+    return errorResponse('Request body must contain valid JSON', 400);
+  }
+  const status = Number(error?.status) || fallbackStatus;
+  if (status >= 500) {
+    console.error('API operation failed:', error);
+    return errorResponse('The request could not be completed. Please try again.', status);
+  }
+  return errorResponse(error?.message || 'The request could not be completed', status);
+}

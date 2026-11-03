@@ -1,12 +1,26 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { useAuth } from '@/context/AuthContext';
+import { canAccessModule, resourceForPath } from '@/lib/role-access.js';
 
 export default function Layout({ children }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, loading } = useAuth();
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  const resource = resourceForPath[pathname];
+  const hasPageAccess = user && resource && canAccessModule(user, resource);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace('/login');
+    else if (!loading && user && resource && !hasPageAccess) router.replace('/');
+  }, [hasPageAccess, loading, resource, router, user]);
 
   // Sync state if window resizes
   useEffect(() => {
@@ -18,6 +32,8 @@ export default function Layout({ children }) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  if (loading || !user || !hasPageAccess) return null;
 
   return (
     <div className="min-h-screen bg-[#EEF2FF] dark:bg-[#070A12] text-[#1E293B] dark:text-[#F1F5F9] relative overflow-x-hidden selection:bg-indigo-500 selection:text-white">

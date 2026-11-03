@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Warehouse,
   Plus,
@@ -20,8 +21,11 @@ import {
 export default function WarehouseLogisticsPage() {
   const { addToast, user } = useAuth();
   const [transfers, setTransfers] = useState([]);
+  const [stockItems, setStockItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isNewTransferOpen, setIsNewTransferOpen] = useState(false);
+  const [confirmUnlocatedStockLocation, setConfirmUnlocatedStockLocation] = useState(false);
+  const transferRequestId = useRef(null);
 
   // New Transfer Form
   const [newTransfer, setNewTransfer] = useState({
@@ -32,7 +36,7 @@ export default function WarehouseLogisticsPage() {
     driverPhone: '',
     dispatchedBy: '',
     notes: '',
-    items: [{ itemDescription: '', quantity: '', unit: '' }],
+    items: [{ stockItemType: '', stockItemId: '', rollNumber: '', quantity: '', unit: '' }],
   });
 
   const fetchData = async () => {
@@ -41,6 +45,7 @@ export default function WarehouseLogisticsPage() {
       const json = await res.json();
       if (json.success) {
         setTransfers(json.data.transfers || []);
+        setStockItems(json.data.stockItems || []);
       }
     } catch (err) {
       console.error('Error fetching warehouse transfers:', err);
@@ -59,7 +64,13 @@ export default function WarehouseLogisticsPage() {
       const res = await fetch('/api/warehouse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'CREATE_TRANSFER', ...newTransfer }),
+        body: JSON.stringify({
+          action: 'CREATE_TRANSFER',
+          transferRequestId: transferRequestId.current || (transferRequestId.current = globalThis.crypto.randomUUID()),
+          confirmUnlocatedStockLocation,
+          dispatchedBy: user?.name || '',
+          ...newTransfer,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -68,10 +79,37 @@ export default function WarehouseLogisticsPage() {
       }
       addToast(`Delivery Challan ${json.data.transfer?.challanNumber} dispatched!`, 'success');
       setIsNewTransferOpen(false);
+      setConfirmUnlocatedStockLocation(false);
+      transferRequestId.current = null;
       fetchData();
     } catch {
       addToast('Error saving transfer', 'error');
     }
+  };
+
+  const selectableStockItems = stockItems.filter((item) =>
+    !item.warehouseLocation || item.warehouseLocation === newTransfer.sourceWarehouse
+  );
+  const selectedStockItem = selectableStockItems.find((item) =>
+    item.stockItemType === newTransfer.items[0]?.stockItemType &&
+    item.stockItemId === newTransfer.items[0]?.stockItemId &&
+    item.rollNumber === newTransfer.items[0]?.rollNumber
+  );
+  const selectStockItem = (key) => {
+    const item = selectableStockItems.find((stockItem) =>
+      `${stockItem.stockItemType}:${stockItem.stockItemId}:${stockItem.rollNumber || ''}` === key
+    );
+    setConfirmUnlocatedStockLocation(false);
+    setNewTransfer({
+      ...newTransfer,
+      items: item ? [{
+        stockItemType: item.stockItemType,
+        stockItemId: item.stockItemId,
+        rollNumber: item.rollNumber || '',
+        quantity: item.stockItemType === 'Fabric' ? item.quantity : '',
+        unit: item.unit,
+      }] : [{ stockItemType: '', stockItemId: '', rollNumber: '', quantity: '', unit: '' }],
+    });
   };
 
   const handleConfirmReceipt = async (transferId) => {
@@ -202,7 +240,7 @@ export default function WarehouseLogisticsPage() {
           title="Create Stock Transfer & Delivery Challan"
           subtitle="Dispatch raw material or finished garments between units"
         >
-          <form onSubmit={handleCreateTransfer} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateTransfer)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Source Origin</label>
@@ -210,7 +248,14 @@ export default function WarehouseLogisticsPage() {
                   type="text"
                   required
                   value={newTransfer.sourceWarehouse}
-                  onChange={(e) => setNewTransfer({ ...newTransfer, sourceWarehouse: e.target.value })}
+                  onChange={(e) => {
+                    setConfirmUnlocatedStockLocation(false);
+                    setNewTransfer({
+                      ...newTransfer,
+                      sourceWarehouse: e.target.value,
+                      items: [{ stockItemType: '', stockItemId: '', rollNumber: '', quantity: '', unit: '' }],
+                    });
+                  }}
                   placeholder="Source warehouse"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 />
@@ -253,44 +298,63 @@ export default function WarehouseLogisticsPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Item Description & Quantity</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  required
-                  value={newTransfer.items[0]?.itemDescription || ''}
-                  onChange={(e) => {
-                    const updated = [...newTransfer.items];
-                    updated[0].itemDescription = e.target.value;
-                    setNewTransfer({ ...newTransfer, items: updated });
-                  }}
-                  className="flex-2 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-                <input
-                  type="number"
-                  required
-                  value={newTransfer.items[0]?.quantity || ''}
-                  onChange={(e) => {
-                    const updated = [...newTransfer.items];
-                    updated[0].quantity = Number(e.target.value);
-                    setNewTransfer({ ...newTransfer, items: updated });
-                  }}
-                  className="w-24 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Unit"
-                  value={newTransfer.items[0]?.unit || ''}
-                  onChange={(e) => {
-                    const updated = [...newTransfer.items];
-                    updated[0].unit = e.target.value;
-                    setNewTransfer({ ...newTransfer, items: updated });
-                  }}
-                  className="w-24 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700 mb-1">Referenced Stock Item & Quantity</label>
+              <select
+                required
+                value={[
+                  newTransfer.items[0]?.stockItemType || '',
+                  newTransfer.items[0]?.stockItemId || '',
+                  newTransfer.items[0]?.rollNumber || '',
+                ].join(':')}
+                onChange={(event) => selectStockItem(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              >
+                <option value="::">Select an available stock item at the source</option>
+                {selectableStockItems.map((item) => {
+                  const key = `${item.stockItemType}:${item.stockItemId}:${item.rollNumber || ''}`;
+                  return (
+                    <option key={key} value={key}>
+                      {item.stockItemCode} — {item.itemDescription} ({item.quantity} {item.unit})
+                      {item.warehouseLocation ? ` · ${item.warehouseLocation}` : ' · location not assigned'}
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedStockItem && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    required
+                    min="0.001"
+                    max={selectedStockItem.quantity}
+                    step="any"
+                    value={newTransfer.items[0]?.quantity || ''}
+                    disabled={selectedStockItem.stockItemType === 'Fabric'}
+                    onChange={(event) => setNewTransfer({
+                      ...newTransfer,
+                      items: [{ ...newTransfer.items[0], quantity: event.target.value }],
+                    })}
+                    className="w-32 px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5] disabled:bg-slate-100"
+                  />
+                  <span className="text-xs text-slate-500">
+                    {selectedStockItem.unit} · available: {selectedStockItem.quantity}
+                    {selectedStockItem.stockItemType === 'Fabric' && ' (whole roll)'}
+                  </span>
+                </div>
+              )}
+              {selectedStockItem && !selectedStockItem.warehouseLocation && (
+                <label className="flex items-start gap-2 text-[11px] text-amber-800">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={confirmUnlocatedStockLocation}
+                    onChange={(event) => setConfirmUnlocatedStockLocation(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  Confirm that this stock is physically located at the selected source. Its existing balance will be assigned there.
+                </label>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">

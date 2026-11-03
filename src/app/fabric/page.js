@@ -3,7 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Layers,
   Plus,
@@ -32,6 +34,7 @@ export default function FabricInventoryPage() {
   const [isAddFabricOpen, setIsAddFabricOpen] = useState(false);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
   const [selectedRoll, setSelectedRoll] = useState(null);
+  const [editingFabric, setEditingFabric] = useState(null);
 
   // Add Fabric Variety Form
   const [newFabric, setNewFabric] = useState({
@@ -107,6 +110,28 @@ export default function FabricInventoryPage() {
       fetchData();
     } catch {
       addToast('Error saving fabric', 'error');
+    }
+  };
+
+  const handleUpdateFabric = async (fabricId, updates) => {
+    try {
+      const response = await fetch('/api/fabric', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_FABRIC', fabricId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Fabric update failed', 'error');
+        return false;
+      }
+      addToast('Fabric variety updated successfully', 'success');
+      setEditingFabric(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating fabric variety', 'error');
+      return false;
     }
   };
 
@@ -409,6 +434,13 @@ export default function FabricInventoryPage() {
                       <p>Weave: {f.weave} • Width: {f.widthInches}&quot;</p>
                       <p className="font-semibold text-slate-700">Available: {f.totalAvailableMeters || 0} Meters</p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingFabric(f)}
+                      className="mt-3 w-full rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Edit Fabric Details
+                    </button>
                   </div>
                 ))}
               </div>
@@ -423,7 +455,7 @@ export default function FabricInventoryPage() {
           title="Add New Fabric Variety"
           subtitle="Define fabric master specification in the central catalog"
         >
-          <form onSubmit={handleCreateFabric} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateFabric)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Fabric Title</label>
               <input
@@ -453,6 +485,7 @@ export default function FabricInventoryPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Composition</label>
                 <input
                   type="text"
+                  required
                   value={newFabric.composition}
                   onChange={(e) => setNewFabric({ ...newFabric, composition: e.target.value })}
                   placeholder="Composition"
@@ -461,14 +494,28 @@ export default function FabricInventoryPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Weave</label>
+              <input
+                type="text"
+                required
+                value={newFabric.weave}
+                onChange={(e) => setNewFabric({ ...newFabric, weave: e.target.value })}
+                placeholder="Weave"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-600"
+              />
+            </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Cost Per Meter (PKR)</label>
                 <input
                   type="number"
                   required
+                  min="0"
+                  step="any"
                   value={newFabric.averageCostPerMeter}
-                  onChange={(e) => setNewFabric({ ...newFabric, averageCostPerMeter: Number(e.target.value) })}
+                  onChange={(e) => setNewFabric({ ...newFabric, averageCostPerMeter: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-600"
                 />
               </div>
@@ -477,8 +524,10 @@ export default function FabricInventoryPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Width (Inches)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="any"
                   value={newFabric.widthInches}
-                  onChange={(e) => setNewFabric({ ...newFabric, widthInches: Number(e.target.value) })}
+                  onChange={(e) => setNewFabric({ ...newFabric, widthInches: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-600"
                 />
               </div>
@@ -487,8 +536,10 @@ export default function FabricInventoryPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Reorder Level (m)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="any"
                   value={newFabric.reorderLevelMeters}
-                  onChange={(e) => setNewFabric({ ...newFabric, reorderLevelMeters: Number(e.target.value) })}
+                  onChange={(e) => setNewFabric({ ...newFabric, reorderLevelMeters: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-600"
                 />
               </div>
@@ -519,7 +570,7 @@ export default function FabricInventoryPage() {
           title="Register Incoming Fabric Roll"
           subtitle="Generate roll barcode ticket and assign warehouse rack bin"
         >
-          <form onSubmit={handleAddRoll} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleAddRoll)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Fabric Quality</label>
               <select
@@ -615,7 +666,7 @@ export default function FabricInventoryPage() {
           title={`Issue Fabric Roll: ${selectedRoll?.rollNumber}`}
           subtitle={`Available Balance: ${selectedRoll?.remainingMeters} Meters`}
         >
-          <form onSubmit={handleIssueRoll} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleIssueRoll)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Meters to Issue</label>
@@ -683,7 +734,27 @@ export default function FabricInventoryPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingFabric)}
+          onClose={() => setEditingFabric(null)}
+          record={editingFabric}
+          title={`Edit Fabric: ${editingFabric?.fabricCode || ''}`}
+          fields={FABRIC_EDIT_FIELDS}
+          onSave={handleUpdateFabric}
+        />
       </div>
     </Layout>
   );
 }
+
+const FABRIC_EDIT_FIELDS = [
+  { name: 'name', label: 'Fabric Title', required: true },
+  { name: 'fabricType', label: 'Fabric Type', required: true },
+  { name: 'composition', label: 'Composition', required: true },
+  { name: 'weave', label: 'Weave', required: true },
+  { name: 'widthInches', label: 'Width (Inches)', type: 'number', min: 0, step: 'any' },
+  { name: 'defaultGsm', label: 'Default GSM', type: 'number', min: 0, step: 'any' },
+  { name: 'averageCostPerMeter', label: 'Cost Per Meter (PKR)', type: 'number', required: true, min: 0, step: 'any' },
+  { name: 'reorderLevelMeters', label: 'Reorder Level (Meters)', type: 'number', min: 0, step: 'any' },
+  { name: 'supplierName', label: 'Supplier' },
+];

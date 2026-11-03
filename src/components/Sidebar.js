@@ -3,6 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
+import { canAccessModule, resourceForPath } from '@/lib/role-access.js';
 import {
   LayoutDashboard,
   ShieldAlert,
@@ -86,6 +88,7 @@ const NAV_GROUPS = [
 
 export default function Sidebar({ isExpanded, isMobileOpen, setIsMobileOpen }) {
   const pathname = usePathname();
+  const { user } = useAuth();
 
   return (
     <>
@@ -227,7 +230,12 @@ export default function Sidebar({ isExpanded, isMobileOpen, setIsMobileOpen }) {
 
         {/* Scrollable Nav List with Coordinated Section Heading Colors */}
         <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 relative z-10 custom-scrollbar">
-          {NAV_GROUPS.map((group, gIdx) => (
+          {NAV_GROUPS.map((group, gIdx) => ({
+            ...group,
+            items: group.items.filter((item) =>
+              canAccessModule(user, resourceForPath[item.href])
+            ),
+          })).filter((group) => group.items.length > 0).map((group, gIdx) => (
             <div key={gIdx} className="space-y-1">
               {isExpanded ? (
                 <div className="px-2.5 pb-1 flex items-center gap-2">

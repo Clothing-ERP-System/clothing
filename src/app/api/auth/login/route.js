@@ -1,7 +1,10 @@
 import { connectDB } from '@/lib/db.js';
 import User from '@/models/User.js';
+import Role from '@/models/Role.js';
 import { verifyPassword, generateToken, COOKIE_NAME } from '@/lib/auth.js';
 import { successResponse, errorResponse } from '@/lib/api-response.js';
+import { publicUser } from '@/lib/authorization.js';
+import { BUILT_IN_ROLES } from '@/lib/role-definitions.js';
 
 export async function POST(request) {
   try {
@@ -15,18 +18,19 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { email, password } = body;
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
 
     if (!email || !password) {
       return errorResponse('Email and password are required', 400);
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const user = await User.findOne({ email });
     if (!user) {
       return errorResponse('Invalid email or password', 401);
     }
 
-    if (!user.isActive) {
+    if (user.isActive === false) {
       return errorResponse('User account is deactivated. Contact administrator.', 403);
     }
 
@@ -35,15 +39,16 @@ export async function POST(request) {
       return errorResponse('Invalid email or password', 401);
     }
 
-    const payload = {
-      id: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      branch: user.branch,
-      department: user.department,
-      permissions: user.permissions || [],
-    };
+    if (user.isActive !== true) {
+      user.isActive = true;
+      await user.save();
+    }
+
+    const role = BUILT_IN_ROLES.includes(user.role) ? null : await Role.findOne({ name: user.role });
+    if (!BUILT_IN_ROLES.includes(user.role) && !role) {
+      return errorResponse('This account has an invalid role assignment. Contact your administrator.', 403);
+    }
+    const payload = publicUser(user, role?.permissions);
 
     const token = generateToken(payload);
 
@@ -66,6 +71,6 @@ export async function POST(request) {
     return response;
   } catch (error) {
     console.error('Login error:', error);
-    return errorResponse(error.message, 500);
+    return errorResponse('Unable to sign in right now. Please try again.', 503);
   }
 }

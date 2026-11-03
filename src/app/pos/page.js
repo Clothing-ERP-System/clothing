@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import ReceiptModal from '@/components/ReceiptModal';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Store,
   Barcode,
@@ -27,6 +28,10 @@ export default function RetailPOSPage() {
   const [session, setSession] = useState(null);
   const [catalog, setCatalog] = useState([]);
   const [recentTransactions, setRecentTransactions] = useState([]);
+  const [financialAccounts, setFinancialAccounts] = useState([]);
+  const [salesAccountCode, setSalesAccountCode] = useState('');
+  const [paymentAccountCode, setPaymentAccountCode] = useState('');
+  const [refundAccountCode, setRefundAccountCode] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Cart State
@@ -37,6 +42,10 @@ export default function RetailPOSPage() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [cashTendered, setCashTendered] = useState('');
+  const [splitDetails, setSplitDetails] = useState([
+    { amount: '', accountCode: '', method: 'Cash' },
+    { amount: '', accountCode: '', method: 'CreditCard' },
+  ]);
 
   // Modals
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
@@ -45,26 +54,69 @@ export default function RetailPOSPage() {
   const [openingCashInput, setOpeningCashInput] = useState('');
   const [isCloseShiftOpen, setIsCloseShiftOpen] = useState(false);
   const [actualCashInput, setActualCashInput] = useState('');
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  const [cancelTransaction, setCancelTransaction] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [refundMethod, setRefundMethod] = useState('Cash');
+  const checkoutRequestId = useRef(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/pos');
+      const res = await fetch(`/api/pos?branch=${encodeURIComponent(currentBranch)}`);
       const json = await res.json();
       if (json.success) {
         setSession(json.data.activeSession);
         setCatalog(json.data.catalogArticles || []);
         setRecentTransactions(json.data.recentTransactions || []);
+        const accounts = json.data.financialAccounts || [];
+        setFinancialAccounts(accounts);
+        setSalesAccountCode((current) => current || accounts.find((account) => account.type === 'Revenue')?.code || '');
+        setPaymentAccountCode((current) => current || accounts.find((account) => account.type === 'Asset')?.code || '');
+        setRefundAccountCode((current) => current || accounts.find((account) => account.type === 'Asset')?.code || '');
       }
     } catch (err) {
       console.error('Error loading POS:', err);
     } finally {
       setLoading(false);
     }
+  }, [currentBranch]);
+
+  const handleCancelTransaction = async (event) => {
+    event.preventDefault();
+    if (!cancelTransaction) return;
+    try {
+      const response = await fetch('/api/pos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'CANCEL_TRANSACTION',
+          transactionId: cancelTransaction._id,
+          refundAmount: Number(cancelTransaction.grandTotal),
+          refundMethod,
+          salesReturnsAccountCode: salesAccountCode,
+          refundAccountCode,
+          cancellationReason: cancelReason,
+          cancelledBy: user?.name || '',
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Cancellation failed', 'error');
+        return;
+      }
+      addToast(`Receipt ${result.data.transaction.receiptNumber} cancelled and refunded`, 'success');
+      setIsCancelOpen(false);
+      setCancelTransaction(null);
+      setCancelReason('');
+      await fetchData();
+    } catch {
+      addToast('Error cancelling POS transaction', 'error');
+    }
   };
 
   useEffect(() => {
     void Promise.resolve().then(fetchData);
-  }, []);
+  }, [fetchData]);
 
   const handleOpenShift = async (e) => {
     e.preventDefault();
@@ -94,6 +146,11 @@ export default function RetailPOSPage() {
 
   // Add Item to Cart
   const addToCart = (article) => {
+    const availableStock = Number(article.availableStock);
+    if (!Number.isSafeInteger(availableStock) || availableStock <= 0) {
+      addToast('This product has no available finished stock', 'warning');
+      return;
+    }
     if (!Number.isFinite(Number(article.price)) || Number(article.price) <= 0) {
       addToast('Set a valid retail price for this design before adding it to the cart', 'warning');
       return;
@@ -101,16 +158,21 @@ export default function RetailPOSPage() {
     const existingIndex = cart.findIndex((item) => item.code === article.code);
     if (existingIndex > -1) {
       const updated = [...cart];
+      if (updated[existingIndex].quantity >= availableStock) {
+        addToast('Cart quantity cannot exceed available finished stock', 'warning');
+        return;
+      }
       updated[existingIndex].quantity += 1;
-      setCart(updated);
+      saveCart(updated);
     } else {
-      setCart([
+      saveCart([
         ...cart,
         {
           code: article.code,
           title: article.title,
           barcode: article.barcode || '',
           price: Number(article.price),
+          availableStock,
           size: '',
           color: '',
           quantity: 1,
@@ -146,6 +208,16 @@ export default function RetailPOSPage() {
   );
   const grandTotal = Math.round(subtotal - totalDiscount);
   const changeDue = Math.max(0, Number(cashTendered) - grandTotal);
+  const splitTotal = splitDetails.reduce((sum, split) => sum + (Number(split.amount) || 0), 0);
+  const isSplitPaymentValid = splitDetails.length >= 2 &&
+    splitDetails.every((split) =>
+      Number.isFinite(Number(split.amount)) && Number(split.amount) > 0 && Boolean(split.accountCode)
+    ) &&
+    Math.abs(splitTotal - grandTotal) <= 0.01;
+  const saveCart = (nextCart) => {
+    checkoutRequestId.current = null;
+    setCart(nextCart);
+  };
 
   // Complete Checkout
   const handleCheckout = async () => {
@@ -155,11 +227,15 @@ export default function RetailPOSPage() {
     }
 
     try {
+      if (!checkoutRequestId.current) {
+        checkoutRequestId.current = globalThis.crypto.randomUUID();
+      }
       const res = await fetch('/api/pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'COMPLETE_CHECKOUT',
+          checkoutRequestId: checkoutRequestId.current,
           sessionId: session?.sessionCode,
           cashierName: user?.name || '',
           customerName,
@@ -175,6 +251,9 @@ export default function RetailPOSPage() {
             discountPercent: i.discountPercent,
           })),
           paymentMethod,
+          splitDetails: paymentMethod === 'Split' ? splitDetails : [],
+          revenueAccountCode: salesAccountCode,
+          paymentAccountCode,
           cashTendered: Number(cashTendered) || 0,
           outletBranch: currentBranch,
         }),
@@ -188,7 +267,7 @@ export default function RetailPOSPage() {
 
       setLastTransaction(json.data.transaction);
       setIsReceiptOpen(true);
-      setCart([]);
+      saveCart([]);
       setCashTendered('');
       addToast('Sale finalized! Generating receipt...', 'success');
       fetchData();
@@ -281,7 +360,7 @@ export default function RetailPOSPage() {
           {/* Left Column: Barcode Reader + Fast Catalog */}
           <div className="lg:col-span-7 space-y-4">
             {/* Barcode Search Bar */}
-            <form onSubmit={handleBarcodeSubmit} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <form onSubmit={(event) => preventDuplicateSubmit(event, handleBarcodeSubmit)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 Scan Garment Barcode or Article SKU (Press Enter)
               </label>
@@ -325,7 +404,8 @@ export default function RetailPOSPage() {
                   <button
                     key={item.id}
                     onClick={() => addToCart(item)}
-                    className="p-3 text-left rounded-xl border border-slate-200 hover:border-[#4F46E5] hover:bg-indigo-50/30 transition-all group flex flex-col justify-between"
+                    disabled={Number(item.availableStock) <= 0}
+                    className="p-3 text-left rounded-xl border border-slate-200 hover:border-[#4F46E5] hover:bg-indigo-50/30 transition-all group flex flex-col justify-between disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div>
                       <span className="text-[10px] font-mono font-bold text-[#4F46E5]">{item.code}</span>
@@ -333,6 +413,7 @@ export default function RetailPOSPage() {
                         {item.title}
                       </h4>
                       <p className="text-[10px] text-slate-400 mt-0.5">{item.category}</p>
+                      <p className="text-[10px] text-slate-500 mt-1">Stock: {item.availableStock} pcs</p>
                     </div>
                     <div className="mt-3 flex justify-between items-center text-xs">
                       <span className="font-extrabold text-slate-900">Rs. {item.price?.toLocaleString()}</span>
@@ -355,7 +436,7 @@ export default function RetailPOSPage() {
               </div>
               {cart.length > 0 && (
                 <button
-                  onClick={() => setCart([])}
+                  onClick={() => saveCart([])}
                   className="text-red-500 hover:text-red-700 text-xs font-semibold flex items-center gap-1"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -387,9 +468,9 @@ export default function RetailPOSPage() {
                           const updated = [...cart];
                           if (updated[idx].quantity > 1) {
                             updated[idx].quantity -= 1;
-                            setCart(updated);
+                            saveCart(updated);
                           } else {
-                            setCart(cart.filter((_, i) => i !== idx));
+                            saveCart(cart.filter((_, i) => i !== idx));
                           }
                         }}
                         className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -400,8 +481,12 @@ export default function RetailPOSPage() {
                       <button
                         onClick={() => {
                           const updated = [...cart];
-                          updated[idx].quantity += 1;
-                          setCart(updated);
+                          if (updated[idx].quantity < updated[idx].availableStock) {
+                            updated[idx].quantity += 1;
+                            saveCart(updated);
+                          } else {
+                            addToast('Cart quantity cannot exceed available finished stock', 'warning');
+                          }
                         }}
                         className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
                       >
@@ -438,12 +523,20 @@ export default function RetailPOSPage() {
             {/* Payment Method Selector */}
             <div className="space-y-1.5 pt-2 border-t border-slate-100">
               <span className="text-xs font-bold text-slate-700 block">Payment Method</span>
-              <div className="grid grid-cols-3 gap-2">
-                {['Cash', 'CreditCard', 'BankTransfer'].map((m) => (
+              <div className="grid grid-cols-4 gap-2">
+                {['Cash', 'CreditCard', 'BankTransfer', 'Split'].map((m) => (
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setPaymentMethod(m)}
+                    onClick={() => {
+                      if (m === 'Split' && splitDetails.length < 2) {
+                        setSplitDetails([
+                          { amount: '', accountCode: '', method: 'Cash' },
+                          { amount: '', accountCode: '', method: 'CreditCard' },
+                        ]);
+                      }
+                      setPaymentMethod(m);
+                    }}
                     className={`py-2 text-xs font-bold rounded-lg border transition-all ${
                       paymentMethod === m
                         ? 'bg-[#172554] text-white border-[#172554]'
@@ -454,6 +547,93 @@ export default function RetailPOSPage() {
                   </button>
                 ))}
               </div>
+              <div className="grid grid-cols-2 gap-2 pt-1.5">
+                <select
+                  required
+                  value={salesAccountCode}
+                  onChange={(event) => setSalesAccountCode(event.target.value)}
+                  className="px-2 py-1.5 text-[11px] border border-slate-200 rounded-lg"
+                  aria-label="Sales revenue account"
+                >
+                  <option value="">Sales revenue account</option>
+                  {financialAccounts.filter((account) => account.type === 'Revenue').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+                {paymentMethod !== 'Split' && (
+                  <select
+                    required
+                    value={paymentAccountCode}
+                    onChange={(event) => setPaymentAccountCode(event.target.value)}
+                    className="px-2 py-1.5 text-[11px] border border-slate-200 rounded-lg"
+                    aria-label="Payment asset account"
+                  >
+                    <option value="">Payment asset account</option>
+                    {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                      <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {paymentMethod === 'Split' && (
+                <div className="space-y-2 pt-2">
+                  {splitDetails.map((split, index) => (
+                    <div key={index} className="grid grid-cols-[1fr_1.5fr_auto] gap-2">
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
+                        value={split.amount}
+                        onChange={(event) => setSplitDetails((current) => current.map((line, lineIndex) =>
+                          lineIndex === index ? { ...line, amount: event.target.value } : line
+                        ))}
+                        placeholder="Amount"
+                        className="px-2 py-1.5 text-[11px] border border-slate-200 rounded-lg"
+                        aria-label={`Split payment ${index + 1} amount`}
+                      />
+                      <select
+                        required
+                        value={split.accountCode}
+                        onChange={(event) => setSplitDetails((current) => current.map((line, lineIndex) =>
+                          lineIndex === index ? { ...line, accountCode: event.target.value } : line
+                        ))}
+                        className="px-2 py-1.5 text-[11px] border border-slate-200 rounded-lg"
+                        aria-label={`Split payment ${index + 1} account`}
+                      >
+                        <option value="">Select asset account</option>
+                        {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                          <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={splitDetails.length <= 2}
+                        onClick={() => setSplitDetails((current) => current.filter((_, lineIndex) => lineIndex !== index))}
+                        className="px-2 text-xs text-red-600 disabled:opacity-40"
+                        aria-label={`Remove split payment ${index + 1}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setSplitDetails((current) => [
+                        ...current,
+                        { amount: '', accountCode: '', method: 'Cash' },
+                      ])}
+                      className="font-bold text-indigo-600"
+                    >
+                      Add payment line
+                    </button>
+                    <span className={Math.abs(splitTotal - grandTotal) <= 0.01 ? 'text-emerald-700' : 'text-red-600'}>
+                      Allocated Rs. {splitTotal.toLocaleString()} / Rs. {grandTotal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Bill Summary */}
@@ -496,7 +676,7 @@ export default function RetailPOSPage() {
             {/* Final Checkout Button */}
             <button
               onClick={handleCheckout}
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || paymentMethod === 'Split' && !isSplitPaymentValid}
               className="w-full py-3 bg-[#4F46E5] hover:bg-[#4338CA] disabled:bg-slate-300 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md shadow-indigo-500/20 transition-all"
             >
               <span>Complete Sale & Print Receipt</span>
@@ -505,6 +685,126 @@ export default function RetailPOSPage() {
           </div>
         </div>
 
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="p-4 sm:p-6 border-b border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900">Recent POS Transactions</h3>
+            <p className="text-xs text-slate-500">Completed receipts can be cancelled once; the original shift must still be open.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold">
+                  <th className="py-3 px-4">Receipt</th>
+                  <th className="py-3 px-4">Customer</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4">Payment</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {recentTransactions.map((transaction) => (
+                  <tr key={transaction._id}>
+                    <td className="py-3 px-4 font-mono font-bold text-[#4F46E5]">{transaction.receiptNumber}</td>
+                    <td className="py-3 px-4">{transaction.customerName || 'Walk-in'}</td>
+                    <td className="py-3 px-4 font-semibold">Rs. {Number(transaction.grandTotal || 0).toLocaleString()}</td>
+                    <td className="py-3 px-4">{transaction.paymentMethod}</td>
+                    <td className="py-3 px-4">{transaction.status}</td>
+                    <td className="py-3 px-4 text-right">
+                      {session?.status === 'Open' && transaction.status === 'Completed' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCancelTransaction(transaction);
+                            setRefundMethod(
+                              ['Cash', 'BankTransfer', 'CreditCard'].includes(transaction.paymentMethod)
+                                ? transaction.paymentMethod
+                                : 'Cash'
+                            );
+                            setIsCancelOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                        >
+                          Cancel & Refund
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <Modal
+          isOpen={isCancelOpen}
+          onClose={() => setIsCancelOpen(false)}
+          title="Cancel POS Receipt & Refund"
+          subtitle={`Receipt ${cancelTransaction?.receiptNumber || ''}`}
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCancelTransaction)} className="space-y-4">
+            <p className="text-xs text-slate-600">
+              This cancels the complete receipt and restores its stock to {cancelTransaction?.outletBranch || 'the original outlet'}.
+              Refund amount: <strong>Rs. {Number(cancelTransaction?.grandTotal || 0).toLocaleString()}</strong>.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Refund Method</label>
+              <select
+                required
+                value={refundMethod}
+                onChange={(event) => setRefundMethod(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+              >
+                {['Cash', 'BankTransfer', 'CreditCard'].map((method) => (
+                  <option key={method} value={method}>{method}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Revenue Returns Account</label>
+              <select
+                required
+                value={salesAccountCode}
+                onChange={(event) => setSalesAccountCode(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+              >
+                <option value="">Select a revenue account</option>
+                {financialAccounts.filter((account) => account.type === 'Revenue').map((account) => (
+                  <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Refund Payment Account</label>
+              <select
+                required
+                value={refundAccountCode}
+                onChange={(event) => setRefundAccountCode(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+              >
+                <option value="">Select an asset account</option>
+                {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                  <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Reason</label>
+              <textarea
+                required
+                rows={2}
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setIsCancelOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Keep Sale</button>
+              <button type="submit" className="px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg">Confirm Refund</button>
+            </div>
+          </form>
+        </Modal>
+
         {/* Modal: Open Shift */}
         <Modal
           isOpen={isOpenShiftOpen}
@@ -512,7 +812,7 @@ export default function RetailPOSPage() {
           title="Open POS Shift"
           subtitle="Enter the verified opening cash amount"
         >
-          <form onSubmit={handleOpenShift} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleOpenShift)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Opening Cash (Rs)</label>
               <input
@@ -538,7 +838,7 @@ export default function RetailPOSPage() {
           title="Reconcile & Close Cash Drawer"
           subtitle={`Session #${session?.sessionCode}`}
         >
-          <form onSubmit={handleCloseShift} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCloseShift)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Physical Cash Counted in Drawer (PKR)

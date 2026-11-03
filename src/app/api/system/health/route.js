@@ -1,7 +1,8 @@
 import { connectDB } from '@/lib/db.js';
-import { errorResponse, successResponse } from '@/lib/api-response.js';
+import { errorResponse, fromError, successResponse } from '@/lib/api-response.js';
+import { withAuthorization } from '@/lib/authorization.js';
 
-export async function GET() {
+async function getSystemHealth() {
   try {
     await connectDB();
     return successResponse({
@@ -11,6 +12,8 @@ export async function GET() {
     });
   } catch (error) {
     console.error('MySQL health check failed:', error);
-    return errorResponse('MySQL is unavailable. Check your database connection settings.', 503);
+    return fromError(error, 503);
   }
 }
+
+export const GET = withAuthorization(getSystemHealth, 'system', 'read', '', true);

@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Package,
   Plus,
@@ -26,6 +29,7 @@ export default function TrimsInventoryPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   const [selectedTrim, setSelectedTrim] = useState(null);
+  const [editingTrim, setEditingTrim] = useState(null);
 
   // New Trim Form
   const [newTrim, setNewTrim] = useState({
@@ -82,6 +86,28 @@ export default function TrimsInventoryPage() {
       fetchData();
     } catch {
       addToast('Error saving trim', 'error');
+    }
+  };
+
+  const handleUpdateTrim = async (trimId, updates) => {
+    try {
+      const response = await fetch('/api/trims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_TRIM', trimId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Trim update failed', 'error');
+        return false;
+      }
+      addToast('Trim item updated successfully', 'success');
+      setEditingTrim(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating trim item', 'error');
+      return false;
     }
   };
 
@@ -241,13 +267,34 @@ export default function TrimsInventoryPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => openAdjustModal(trim)}
-                  className="mt-4 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors"
-                >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>Adjust Physical Count</span>
-                </button>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTrim(trim)}
+                    className="flex items-center justify-center py-2 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors"
+                  >
+                    Edit Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAdjustModal(trim)}
+                    className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Adjust Stock</span>
+                  </button>
+                </div>
+                {Number(trim.currentStock || 0) === 0 && !(trim.movements || []).length && (
+                  <RecordDeleteButton
+                    endpoint="/api/trims"
+                    action="DELETE_TRIM"
+                    idField="trimId"
+                    recordId={trim._id}
+                    recordLabel={`trim ${trim.trimCode}`}
+                    onDeleted={fetchData}
+                    className="mt-2 w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                  />
+                )}
               </div>
             );
           })}
@@ -260,7 +307,7 @@ export default function TrimsInventoryPage() {
           title="Create Trim Item"
           subtitle="Add buttons, threads, zippers, hangtags, or packaging to inventory"
         >
-          <form onSubmit={handleCreateTrim} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateTrim)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Item Name</label>
               <input
@@ -368,7 +415,7 @@ export default function TrimsInventoryPage() {
           title={`Adjust Stock: ${selectedTrim?.name}`}
           subtitle={`Current Recorded Balance: ${selectedTrim?.currentStock} ${selectedTrim?.unit}`}
         >
-          <form onSubmit={handleAdjustStock} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleAdjustStock)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Quantity Adjustment (+ Addition or - Deduction)
@@ -413,7 +460,27 @@ export default function TrimsInventoryPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingTrim)}
+          onClose={() => setEditingTrim(null)}
+          record={editingTrim}
+          title={`Edit Trim: ${editingTrim?.trimCode || ''}`}
+          fields={TRIM_EDIT_FIELDS}
+          onSave={handleUpdateTrim}
+        />
       </div>
     </Layout>
   );
 }
+
+const TRIM_EDIT_FIELDS = [
+  { name: 'name', label: 'Item Name', required: true },
+  { name: 'category', label: 'Category', type: 'select', required: true, options: ['Thread', 'Buttons', 'Zippers', 'Labels & Tags', 'Polybags & Packaging', 'Lace', 'Tassels'] },
+  { name: 'variant', label: 'Variant' },
+  { name: 'color', label: 'Color' },
+  { name: 'unit', label: 'Unit', type: 'select', required: true, options: ['Pieces', 'Cones', 'Gross', 'Dozens', 'Yards', 'Packets'] },
+  { name: 'minimumStock', label: 'Minimum Stock', type: 'number', min: 0 },
+  { name: 'unitCost', label: 'Unit Cost', type: 'number', required: true, min: 0, step: 'any' },
+  { name: 'supplierName', label: 'Supplier' },
+  { name: 'binLocation', label: 'Bin Location' },
+];

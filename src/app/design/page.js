@@ -3,7 +3,10 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordAttachments from '@/components/RecordAttachments';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Palette,
   Plus,
@@ -21,8 +24,11 @@ import {
 export default function DesignBOMPage() {
   const { addToast } = useAuth();
   const [designs, setDesigns] = useState([]);
+  const [stockItems, setStockItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDesign, setSelectedDesign] = useState(null);
+  const [editingDesign, setEditingDesign] = useState(null);
+  const [attachmentDesign, setAttachmentDesign] = useState(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   // New Design Form
@@ -50,6 +56,7 @@ export default function DesignBOMPage() {
       const json = await res.json();
       if (json.success) {
         setDesigns(json.data.designs || []);
+        setStockItems(json.data.stockItems || []);
         if (json.data.designs?.length > 0) {
           setSelectedDesign((current) => current || json.data.designs[0]);
         }
@@ -94,14 +101,43 @@ export default function DesignBOMPage() {
     }
   };
 
+  const handleUpdateDesign = async (designId, updates) => {
+    try {
+      const response = await fetch('/api/design', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_DESIGN', designId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Design update failed', 'error');
+        return false;
+      }
+      addToast('Design details updated successfully', 'success');
+      setEditingDesign(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating design', 'error');
+      return false;
+    }
+  };
+
   const handleAddBOMItem = () => {
-    setNewDesign({
-      ...newDesign,
+    setNewDesign((prev) => ({
+      ...prev,
       bom: [
-        ...newDesign.bom,
-        { itemCategory: '', itemName: '', quantityPerGarment: '', unit: '', estimatedUnitCost: '' },
+        ...prev.bom,
+        { stockItemType: '', stockItemId: '', itemName: '', quantityPerGarment: '', unit: '', estimatedUnitCost: '' },
       ],
-    });
+    }));
+  };
+
+  const handleRemoveBOMItem = (index) => {
+    setNewDesign((prev) => ({
+      ...prev,
+      bom: prev.bom.filter((_, idx) => idx !== index),
+    }));
   };
 
   return (
@@ -163,6 +199,16 @@ export default function DesignBOMPage() {
                     </div>
                     <h3 className="text-xs font-bold text-slate-900 mt-1">{art.title}</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">{art.category} • {art.season}</p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingDesign(art);
+                      }}
+                      className="mt-2 rounded-lg border border-indigo-200 px-2.5 py-1 text-[11px] font-bold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Edit Design
+                    </button>
                     <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between text-[11px] font-semibold">
                       <span className="text-slate-500">Factory Cost: Rs. {art.estimatedFactoryCost?.toLocaleString()}</span>
                       <span className="text-indigo-600">Retail: Rs. {art.suggestedRetailPrice?.toLocaleString()}</span>
@@ -189,6 +235,13 @@ export default function DesignBOMPage() {
                     <span className="text-xl font-black text-slate-900">Rs. {selectedDesign.suggestedRetailPrice?.toLocaleString()}</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachmentDesign(selectedDesign)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Manage Design Documents
+                </button>
 
                 {/* Cost Breakdown Summary */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -294,189 +347,383 @@ export default function DesignBOMPage() {
           onClose={() => setIsAddOpen(false)}
           title="Create Design Article & BOM"
           subtitle="Define product specifications, bill of materials, and target pricing"
-          maxWidth="max-w-3xl"
+          maxWidth="max-w-4xl"
         >
-          <form onSubmit={handleCreateDesign} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Article Title</label>
-                <input
-                  type="text"
-                  required
-                  value={newDesign.title}
-                  onChange={(e) => setNewDesign({ ...newDesign, title: e.target.value })}
-                  placeholder="Design title"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-              </div>
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateDesign)} className="space-y-5">
+            {/* 1. Article Identity */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Article Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newDesign.title}
+                    onChange={(e) => setNewDesign({ ...newDesign, title: e.target.value })}
+                    placeholder="e.g. Mens Formal Oxford Shirt Long Sleeve"
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
-                <select
-                  value={newDesign.category}
-                  onChange={(e) => setNewDesign({ ...newDesign, category: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                >
-                  <option value="">Select a category</option>
-                  <option value="Men Kurta">Men Kurta</option>
-                  <option value="Casual Shirt">Casual Shirt</option>
-                  <option value="Women 2-Piece">Women 2-Piece</option>
-                  <option value="Women 3-Piece">Women 3-Piece</option>
-                  <option value="Trousers">Trousers</option>
-                </select>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    value={newDesign.category}
+                    onChange={(e) => setNewDesign({ ...newDesign, category: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  >
+                    <option value="">Select a category</option>
+                    <option value="Men Kurta">Men Kurta</option>
+                    <option value="Casual Shirt">Casual Shirt</option>
+                    <option value="Formal Shirts">Formal Shirts</option>
+                    <option value="Women 2-Piece">Women 2-Piece</option>
+                    <option value="Women 3-Piece">Women 3-Piece</option>
+                    <option value="Trousers">Trousers</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Sample Status <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={newDesign.sampleStatus}
+                    onChange={(e) => setNewDesign({ ...newDesign, sampleStatus: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  >
+                    <option value="Draft">Draft (Concept / Development)</option>
+                    <option value="Sampling">Sampling (Fitting & Pre-Production)</option>
+                    <option value="ProductionReady">Production Ready (Approved for Bulk)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Available Sizes <span className="text-slate-400 font-normal">(Comma-separated)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newDesign.sizeNames}
+                    onChange={(e) => setNewDesign({ ...newDesign, sizeNames: e.target.value })}
+                    placeholder="e.g. S, M, L, XL or 32, 34, 36, 38"
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Sample Status</label>
-                <select
-                  value={newDesign.sampleStatus}
-                  onChange={(e) => setNewDesign({ ...newDesign, sampleStatus: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                >
-                  <option value="Draft">Draft</option>
-                  <option value="Sampling">Sampling</option>
-                  <option value="ProductionReady">Production Ready</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Available Sizes</label>
-                <input
-                  type="text"
-                  value={newDesign.sizeNames}
-                  onChange={(e) => setNewDesign({ ...newDesign, sizeNames: e.target.value })}
-                  placeholder="Comma-separated sizes"
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
+            {/* 2. Production & Costing Parameters Card */}
+            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
+                Production Costing & Pricing Parameters
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Fabric Cons. (Meters/Pc) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={newDesign.fabricConsumptionPerPiece}
+                    onChange={(e) => setNewDesign({ ...newDesign, fabricConsumptionPerPiece: e.target.value === '' ? '' : Number(e.target.value) })}
+                    placeholder="e.g. 1.85"
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Stitching Piece Rate (PKR) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    required
+                    value={newDesign.stitchingCostPerPiece}
+                    onChange={(e) => setNewDesign({ ...newDesign, stitchingCostPerPiece: e.target.value === '' ? '' : Number(e.target.value) })}
+                    placeholder="e.g. 250"
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Target Retail Price (PKR) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    required
+                    value={newDesign.suggestedRetailPrice}
+                    onChange={(e) => setNewDesign({ ...newDesign, suggestedRetailPrice: e.target.value === '' ? '' : Number(e.target.value) })}
+                    placeholder="e.g. 3850"
+                    className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Fabric Cons. (m)</label>
-                <input
-                  type="number"
-                  step="0.05"
-                  required
-                  value={newDesign.fabricConsumptionPerPiece}
-                  onChange={(e) => setNewDesign({ ...newDesign, fabricConsumptionPerPiece: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Stitching Piece Rate (Rs)</label>
-                <input
-                  type="number"
-                  required
-                  value={newDesign.stitchingCostPerPiece}
-                  onChange={(e) => setNewDesign({ ...newDesign, stitchingCostPerPiece: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Target Retail Price</label>
-                <input
-                  type="number"
-                  required
-                  value={newDesign.suggestedRetailPrice}
-                  onChange={(e) => setNewDesign({ ...newDesign, suggestedRetailPrice: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
-              </div>
-            </div>
-
-            {/* Dynamic BOM list */}
-            <div className="pt-2">
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-xs font-bold text-slate-700">Bill of Materials (BOM Items)</label>
+            {/* 3. Dynamic BOM List */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Bill of Materials (BOM Items)
+                  </label>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/40 text-[#4F46E5] dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">
+                    {newDesign.bom.length} {newDesign.bom.length === 1 ? 'line' : 'lines'}
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={handleAddBOMItem}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-[#4F46E5]"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] shadow-xs transition-colors cursor-pointer"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
                   <span>Add Line Item</span>
                 </button>
               </div>
 
-              <div className="space-y-2">
-                {newDesign.bom.map((b, idx) => (
-                  <div key={idx} className="flex gap-2 items-center bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
-                    <input
-                      type="text"
-                      placeholder="Material name"
-                      required
-                      value={b.itemName}
-                      onChange={(e) => {
-                        const updated = [...newDesign.bom];
-                        updated[idx].itemName = e.target.value;
-                        setNewDesign({ ...newDesign, bom: updated });
-                      }}
-                      className="flex-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded focus:outline-none"
-                    />
+              {newDesign.bom.length === 0 ? (
+                <div className="text-center py-7 px-4 bg-slate-50/60 dark:bg-slate-800/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                  <Layers className="w-7 h-7 text-slate-400 mx-auto mb-2 opacity-80" />
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    No BOM materials added yet
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Click &quot;+ Add Line Item&quot; to assign fabric rolls, threads, buttons, or trims to this garment.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {newDesign.bom.map((b, idx) => {
+                    const lineTotal = (Number(b.quantityPerGarment) || 0) * (Number(b.estimatedUnitCost) || 0);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row gap-3 sm:items-center text-xs"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 sm:hidden">
+                            Stock Item
+                          </label>
+                          <select
+                            required
+                            value={b.stockItemType && b.stockItemId ? `${b.stockItemType}:${b.stockItemId}` : ''}
+                            onChange={(event) => {
+                              const [stockItemType, stockItemId] = event.target.value.split(':');
+                              const stockItem = stockItems.find((item) =>
+                                item.type === stockItemType && item.id === stockItemId
+                              );
+                              const updated = [...newDesign.bom];
+                              updated[idx] = {
+                                ...updated[idx],
+                                stockItemType: stockItem?.type || '',
+                                stockItemId: stockItem?.id || '',
+                                itemName: stockItem?.name || '',
+                                unit: stockItem?.unit || '',
+                                estimatedUnitCost: stockItem?.unitCost || 0,
+                              };
+                              setNewDesign({ ...newDesign, bom: updated });
+                            }}
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5]"
+                          >
+                            <option value="">Select fabric or trim item...</option>
+                            {stockItems.map((item) => (
+                              <option key={`${item.type}:${item.id}`} value={`${item.type}:${item.id}`}>
+                                [{item.type}] {item.code} — {item.name} ({item.unit})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="Qty"
-                      required
-                      value={b.quantityPerGarment}
-                      onChange={(e) => {
-                        const updated = [...newDesign.bom];
-                        updated[idx].quantityPerGarment = Number(e.target.value);
-                        setNewDesign({ ...newDesign, bom: updated });
-                      }}
-                      className="w-20 px-2 py-1.5 bg-white border border-slate-200 rounded focus:outline-none"
-                    />
+                        <div className="flex items-center gap-2">
+                          <div className="w-28 shrink-0">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 sm:hidden">
+                              Qty / Garment
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0.001"
+                                placeholder="Qty"
+                                required
+                                value={b.quantityPerGarment}
+                                onChange={(e) => {
+                                  const updated = [...newDesign.bom];
+                                  updated[idx].quantityPerGarment = e.target.value === '' ? '' : Number(e.target.value);
+                                  setNewDesign({ ...newDesign, bom: updated });
+                                }}
+                                className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5]"
+                              />
+                              {b.unit && (
+                                <span className="absolute right-2 top-2 text-[10px] font-bold text-slate-400 pointer-events-none">
+                                  {b.unit}
+                                </span>
+                              )}
+                            </div>
+                          </div>
 
-                    <input
-                      type="number"
-                      placeholder="Rate"
-                      required
-                      value={b.estimatedUnitCost}
-                      onChange={(e) => {
-                        const updated = [...newDesign.bom];
-                        updated[idx].estimatedUnitCost = Number(e.target.value);
-                        setNewDesign({ ...newDesign, bom: updated });
-                      }}
-                      className="w-24 px-2 py-1.5 bg-white border border-slate-200 rounded focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
+                          <div className="w-28 shrink-0">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 sm:hidden">
+                              Rate (PKR)
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              placeholder="Rate"
+                              required
+                              value={b.estimatedUnitCost}
+                              onChange={(e) => {
+                                const updated = [...newDesign.bom];
+                                updated[idx].estimatedUnitCost = e.target.value === '' ? '' : Number(e.target.value);
+                                setNewDesign({ ...newDesign, bom: updated });
+                              }}
+                              className="w-full px-2.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5]"
+                            />
+                          </div>
+
+                          <div className="w-24 text-right shrink-0 hidden sm:block">
+                            <span className="text-[10px] text-slate-400 block font-medium">Subtotal</span>
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                              Rs. {lineTotal.toLocaleString()}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            aria-label="Remove BOM Line"
+                            onClick={() => handleRemoveBOMItem(idx)}
+                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
+            {/* 4. Tech Pack Notes */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Tech Pack Notes</label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Tech Pack Notes & Instructions <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
               <textarea
-                rows={2}
+                rows={3}
                 value={newDesign.techPackNotes}
                 onChange={(e) => setNewDesign({ ...newDesign, techPackNotes: e.target.value })}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                placeholder="Enter technical specifications, seam allowances, stitching instructions, label placement, or packaging notes..."
+                className="w-full px-3.5 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5]/20 focus:border-[#4F46E5] transition-all"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsAddOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm"
-              >
-                Save Article & BOM
-              </button>
+            {/* 5. Footer Actions Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                <span>Total BOM Items: </span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{newDesign.bom.length}</span>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsAddOpen(false)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm transition-all cursor-pointer"
+                >
+                  Save Article & BOM
+                </button>
+              </div>
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingDesign)}
+          onClose={() => setEditingDesign(null)}
+          record={editingDesign}
+          title={`Edit Design: ${editingDesign?.designCode || ''}`}
+          fields={getDesignEditFields(stockItems)}
+          onSave={handleUpdateDesign}
+        />
+        <RecordAttachments
+          module="design"
+          record={attachmentDesign}
+          onClose={() => setAttachmentDesign(null)}
+        />
       </div>
     </Layout>
   );
+}
+
+function getDesignEditFields(stockItems) {
+  return [
+  { name: 'title', label: 'Article Title', required: true },
+  { name: 'season', label: 'Season' },
+  { name: 'category', label: 'Category' },
+  { name: 'sampleStatus', label: 'Sample Status', type: 'select', required: true, options: ['Draft', 'Sampling', 'ProductionReady'] },
+  { name: 'designerName', label: 'Designer' },
+  { name: 'fabricConsumptionPerPiece', label: 'Fabric Consumption / Piece', type: 'number', min: 0, step: 'any' },
+  { name: 'cuttingCostPerPiece', label: 'Cutting Cost / Piece', type: 'number', min: 0, step: 'any' },
+  { name: 'stitchingCostPerPiece', label: 'Stitching Cost / Piece', type: 'number', min: 0, step: 'any' },
+  { name: 'finishingCostPerPiece', label: 'Finishing Cost / Piece', type: 'number', min: 0, step: 'any' },
+  { name: 'overheadCostPerPiece', label: 'Overhead Cost / Piece', type: 'number', min: 0, step: 'any' },
+  { name: 'suggestedWholesalePrice', label: 'Wholesale Price', type: 'number', min: 0, step: 'any' },
+  { name: 'suggestedRetailPrice', label: 'Retail Price', type: 'number', min: 0, step: 'any' },
+  { name: 'techPackNotes', label: 'Tech Pack Notes', type: 'textarea' },
+  {
+    name: 'bom',
+    label: 'Bill of Materials',
+    type: 'array',
+    itemLabel: 'material',
+    itemFields: [
+      {
+        name: 'stockItemType',
+        label: 'Material Type',
+        type: 'select',
+        required: true,
+        options: ['Fabric', 'Trim'],
+        resetFields: ['stockItemId'],
+      },
+      {
+        name: 'stockItemId',
+        label: 'Stock Item',
+        type: 'select',
+        required: true,
+        options: (item) => stockItems
+          .filter((stockItem) => stockItem.type === item.stockItemType)
+          .map((stockItem) => ({
+            value: stockItem.id,
+            label: `${stockItem.code} · ${stockItem.name}`,
+          })),
+      },
+      { name: 'quantityPerGarment', label: 'Quantity per Garment', type: 'number', required: true, min: 0, step: 'any' },
+    ],
+  },
+  {
+    name: 'sizeGrading',
+    label: 'Size Grading',
+    type: 'array',
+    itemLabel: 'size',
+    itemFields: [{ name: 'sizeName', label: 'Size Name', required: true }],
+  },
+  ];
 }

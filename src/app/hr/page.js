@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   UserCheck,
   Plus,
@@ -18,7 +21,7 @@ import {
 } from 'lucide-react';
 
 export default function HRBiometricsPage() {
-  const { addToast } = useAuth();
+  const { addToast, user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('employees'); // 'employees', 'attendance', 'payroll', 'biometric'
@@ -27,6 +30,9 @@ export default function HRBiometricsPage() {
   const [isAddEmpOpen, setIsAddEmpOpen] = useState(false);
   const [isBiometricPunchOpen, setIsBiometricPunchOpen] = useState(false);
   const [isPayrollOpen, setIsPayrollOpen] = useState(false);
+  const [isPayrollPaymentOpen, setIsPayrollPaymentOpen] = useState(false);
+  const [selectedPayrollSlip, setSelectedPayrollSlip] = useState(null);
+  const [editingEmployee, setEditingEmployee] = useState(null);
 
   // New Emp Form
   const [newEmp, setNewEmp] = useState({
@@ -56,6 +62,15 @@ export default function HRBiometricsPage() {
     piecesProduced: '',
     daysWorked: '',
     overtimeHours: '',
+    expenseAccountCode: '',
+    payableAccountCode: '',
+  });
+
+  const [payrollPaymentForm, setPayrollPaymentForm] = useState({
+    paymentAccountCode: '',
+    method: '',
+    referenceNumber: '',
+    paidBy: '',
   });
 
   const fetchData = async () => {
@@ -64,6 +79,14 @@ export default function HRBiometricsPage() {
       const json = await res.json();
       if (json.success) {
         setData(json.data);
+        const accounts = json.data.financialAccounts || [];
+        setPayrollForm((current) => ({
+          ...current,
+          expenseAccountCode: current.expenseAccountCode ||
+            accounts.find((account) => account.type === 'OperatingExpense')?.code || '',
+          payableAccountCode: current.payableAccountCode ||
+            accounts.find((account) => account.type === 'Liability')?.code || '',
+        }));
       }
     } catch (err) {
       console.error('Error fetching HR data:', err);
@@ -94,6 +117,28 @@ export default function HRBiometricsPage() {
       fetchData();
     } catch {
       addToast('Error saving employee', 'error');
+    }
+  };
+
+  const handleUpdateEmployee = async (employeeId, updates) => {
+    try {
+      const response = await fetch('/api/hr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_EMPLOYEE', employeeId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Employee update failed', 'error');
+        return false;
+      }
+      addToast('Employee profile updated successfully', 'success');
+      setEditingEmployee(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating employee', 'error');
+      return false;
     }
   };
 
@@ -139,9 +184,47 @@ export default function HRBiometricsPage() {
     }
   };
 
+  const openPayrollPayment = (slip) => {
+    setSelectedPayrollSlip(slip);
+    setPayrollPaymentForm({
+      paymentAccountCode: data?.financialAccounts?.find((account) => account.type === 'Asset')?.code || '',
+      method: '',
+      referenceNumber: '',
+      paidBy: user?.name || '',
+    });
+    setIsPayrollPaymentOpen(true);
+  };
+
+  const handlePayPayroll = async (event) => {
+    event.preventDefault();
+    if (!selectedPayrollSlip) return;
+    try {
+      const response = await fetch('/api/hr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'PAY_PAYROLL',
+          payrollSlipId: selectedPayrollSlip._id,
+          ...payrollPaymentForm,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Payroll payment failed', 'error');
+        return;
+      }
+      addToast('Payroll payment recorded in finance', 'success');
+      setIsPayrollPaymentOpen(false);
+      await fetchData();
+    } catch {
+      addToast('Error recording payroll payment', 'error');
+    }
+  };
+
   const employees = data?.employees || [];
   const attendance = data?.attendance || [];
   const payrollSlips = data?.payrollSlips || [];
+  const financialAccounts = data?.financialAccounts || [];
 
   return (
     <Layout>
@@ -259,6 +342,25 @@ export default function HRBiometricsPage() {
                     <span className="font-mono font-bold text-indigo-600">#{emp.biometricPin}</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingEmployee(emp)}
+                  className="w-full rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                >
+                  Edit Employee
+                </button>
+                {!attendance.some((entry) => entry.employeeCode === emp.employeeCode) &&
+                  !payrollSlips.some((slip) => slip.employeeCode === emp.employeeCode) && (
+                    <RecordDeleteButton
+                      endpoint="/api/hr"
+                      action="DELETE_EMPLOYEE"
+                      idField="employeeId"
+                      recordId={emp._id}
+                      recordLabel={`employee ${emp.employeeCode}`}
+                      onDeleted={fetchData}
+                      className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                    />
+                  )}
               </div>
             ))}
           </div>
@@ -331,7 +433,17 @@ export default function HRBiometricsPage() {
                 <p className="text-xs text-slate-500">Calculate wages from production pieces produced or monthly salary</p>
               </div>
               <button
-                onClick={() => setIsPayrollOpen(true)}
+                onClick={() => {
+                  setPayrollForm((current) => ({
+                    ...current,
+                    month: '',
+                    employeeCode: employees.find((employee) => employee.status === 'Active')?.employeeCode || '',
+                    piecesProduced: '',
+                    daysWorked: '',
+                    overtimeHours: '',
+                  }));
+                  setIsPayrollOpen(true);
+                }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA]"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -371,9 +483,21 @@ export default function HRBiometricsPage() {
                         Rs. {p.netPayablePKR?.toLocaleString()}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                          {p.paymentStatus}
-                        </span>
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            p.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {p.paymentStatus}
+                          </span>
+                          {p.paymentStatus === 'Pending' && (
+                            <button
+                              onClick={() => openPayrollPayment(p)}
+                              className="px-2.5 py-1 text-[10px] font-bold rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                            >
+                              Pay
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -390,7 +514,7 @@ export default function HRBiometricsPage() {
           title="Create Employee Profile"
           subtitle="Register salaried staff, master cutter, or piece-rate stitching tailors"
         >
-          <form onSubmit={handleCreateEmp} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateEmp)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Employee Full Name</label>
@@ -420,6 +544,7 @@ export default function HRBiometricsPage() {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Department</label>
                 <select
+                  required
                   value={newEmp.department}
                   onChange={(e) => setNewEmp({ ...newEmp, department: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
@@ -535,7 +660,7 @@ export default function HRBiometricsPage() {
           title="Simulate Biometric Fingerprint Check-In"
           subtitle="Transmits terminal attendance event from factory floor"
         >
-          <form onSubmit={handlePunch} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handlePunch)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Select Employee</label>
               <select
@@ -612,19 +737,23 @@ export default function HRBiometricsPage() {
           title="Generate Monthly Compensation Payslip"
           subtitle="Calculates wages from pieces produced or salaried attendance"
         >
-          <form onSubmit={handleGeneratePayroll} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleGeneratePayroll)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Employee</label>
                 <select
+                  required
                   value={payrollForm.employeeCode}
                   onChange={(e) => setPayrollForm({ ...payrollForm, employeeCode: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 >
+                  <option value="">Select an active employee</option>
                   {employees.map((e) => (
-                    <option key={e._id} value={e.employeeCode}>
-                      {e.name} ({e.employmentType})
-                    </option>
+                    e.status === 'Active' && (
+                      <option key={e._id} value={e.employeeCode}>
+                        {e.name} ({e.employmentType})
+                      </option>
+                    )
                   ))}
                 </select>
               </div>
@@ -673,6 +802,37 @@ export default function HRBiometricsPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payroll Expense Account</label>
+                <select
+                  required
+                  value={payrollForm.expenseAccountCode}
+                  onChange={(event) => setPayrollForm({ ...payrollForm, expenseAccountCode: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select operating expense</option>
+                  {financialAccounts.filter((account) => account.type === 'OperatingExpense').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} — {account.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payroll Payable Account</label>
+                <select
+                  required
+                  value={payrollForm.payableAccountCode}
+                  onChange={(event) => setPayrollForm({ ...payrollForm, payableAccountCode: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select liability account</option>
+                  {financialAccounts.filter((account) => account.type === 'Liability').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} — {account.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
               <button
                 type="button"
@@ -690,7 +850,87 @@ export default function HRBiometricsPage() {
             </div>
           </form>
         </Modal>
+
+        <Modal
+          isOpen={isPayrollPaymentOpen}
+          onClose={() => {
+            setIsPayrollPaymentOpen(false);
+          }}
+          title="Record Payroll Payment"
+          subtitle={`${selectedPayrollSlip?.employeeName} — Rs. ${Number(selectedPayrollSlip?.netPayablePKR || 0).toLocaleString()}`}
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handlePayPayroll)} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Cash or Bank Account</label>
+              <select
+                required
+                value={payrollPaymentForm.paymentAccountCode}
+                onChange={(event) => setPayrollPaymentForm({ ...payrollPaymentForm, paymentAccountCode: event.target.value })}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              >
+                <option value="">Select payment account</option>
+                {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                  <option key={account.code} value={account.code}>{account.code} — {account.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method</label>
+                <select
+                  required
+                  value={payrollPaymentForm.method}
+                  onChange={(event) => setPayrollPaymentForm({ ...payrollPaymentForm, method: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select method</option>
+                  <option value="Cash">Cash</option>
+                  <option value="BankTransfer">Bank transfer</option>
+                  <option value="Cheque">Cheque</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reference Number</label>
+                <input
+                  type="text"
+                  value={payrollPaymentForm.referenceNumber}
+                  onChange={(event) => setPayrollPaymentForm({ ...payrollPaymentForm, referenceNumber: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button type="button" onClick={() => setIsPayrollPaymentOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm">
+                Confirm Payment
+              </button>
+            </div>
+          </form>
+        </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingEmployee)}
+          onClose={() => setEditingEmployee(null)}
+          record={editingEmployee}
+          title={`Edit Employee: ${editingEmployee?.employeeCode || ''}`}
+          fields={EMPLOYEE_EDIT_FIELDS}
+          onSave={handleUpdateEmployee}
+        />
       </div>
     </Layout>
   );
 }
+
+const EMPLOYEE_EDIT_FIELDS = [
+  { name: 'name', label: 'Employee Name', required: true },
+  { name: 'designation', label: 'Designation' },
+  { name: 'department', label: 'Department', type: 'select', options: ['Stitching', 'Cutting', 'Quality Assurance', 'Dyeing', 'Warehouse', 'Administration'] },
+  { name: 'employmentType', label: 'Employment Type', type: 'select', options: ['PieceRateTailor', 'Salaried', 'ContractWorker'] },
+  { name: 'cnic', label: 'CNIC' },
+  { name: 'phone', label: 'Phone' },
+  { name: 'baseSalaryPKR', label: 'Base Salary (PKR)', type: 'number', min: 0, step: 'any' },
+  { name: 'pieceRatePerGarmentPKR', label: 'Piece Rate (PKR)', type: 'number', min: 0, step: 'any' },
+  { name: 'biometricPin', label: 'Biometric PIN' },
+  { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'] },
+];

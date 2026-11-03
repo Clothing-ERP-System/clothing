@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Link from 'next/link';
 import {
@@ -14,6 +14,7 @@ import {
   Bell,
   Activity,
   ArrowUp,
+  ArrowDown,
   ShieldCheck,
   Coins,
 } from 'lucide-react';
@@ -21,56 +22,112 @@ import {
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function fetchStats() {
-      try {
-        const res = await fetch('/api/dashboard/stats');
-        const json = await res.json();
-        if (json.success) {
-          setData(json.data);
-        }
-      } catch (err) {
-        console.error('Error fetching dashboard stats:', err);
-      } finally {
-        setLoading(false);
-      }
+  const requestStats = useCallback(async () => {
+    const response = await fetch('/api/dashboard/stats', { cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Unable to load dashboard data');
     }
-    fetchStats();
+    return result.data;
   }, []);
 
-  const kpis = data?.kpis || {
-    totalRevenue: 0,
-    wholesaleSalesTotal: 0,
-    retailPosSalesTotal: 0,
-    totalFabricMeters: 0,
-    totalRollsCount: 0,
-    availableRollsCount: 0,
-    totalCompletedPieces: 0,
-    totalTargetPieces: 0,
-    totalWipPieces: 0,
-    overallEfficiency: 0,
-    qualityPassRate: 0,
-    totalReceivables: 0,
-    totalPayables: 0,
+  const retryStats = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setData(await requestStats());
+    } catch (fetchError) {
+      console.error('Error fetching dashboard stats:', fetchError);
+      setData(null);
+      setError(fetchError.message || 'Unable to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const alerts = data?.alerts || {
-    lowStockTrimsCount: 0,
-    lowStockTrims: [],
-    pendingCuttingOrdersCount: 0,
-  };
+  useEffect(() => {
+    let active = true;
+    requestStats()
+      .then((stats) => {
+        if (active) setData(stats);
+      })
+      .catch((fetchError) => {
+        console.error('Error fetching dashboard stats:', fetchError);
+        if (active) {
+          setData(null);
+          setError(fetchError.message || 'Unable to load dashboard data');
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
-  const productionTrends = data?.productionTrends || [
-    { day: 'Mon', target: 0, actual: 0, efficiency: 0 },
-    { day: 'Tue', target: 0, actual: 0, efficiency: 0 },
-    { day: 'Wed', target: 0, actual: 0, efficiency: 0 },
-    { day: 'Thu', target: 0, actual: 0, efficiency: 0 },
-    { day: 'Fri', target: 0, actual: 0, efficiency: 0 },
-    { day: 'Sat', target: 0, actual: 0, efficiency: 0 },
-  ];
+    return () => {
+      active = false;
+    };
+  }, [requestStats]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <p className="rounded-xl border border-indigo-100 bg-white p-5 text-sm text-slate-500" role="status">
+          Loading dashboard data…
+        </p>
+      </Layout>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Layout>
+        <div className="rounded-xl border border-rose-200 bg-white p-5 text-sm text-rose-800" role="alert">
+          <p className="font-semibold">Dashboard data is unavailable.</p>
+          <p className="mt-1">{error || 'No dashboard response was received.'}</p>
+          <button
+            type="button"
+            onClick={retryStats}
+            className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+          >
+            Retry
+          </button>
+        </div>
+      </Layout>
+    );
+  }
+
+  const kpis = data.kpis;
+  const alerts = data.alerts;
+  const productionTrends = data.productionTrends;
 
   const hasProductionData = productionTrends.some((pt) => pt.actual > 0 || pt.target > 0);
+  const maxProductionValue = Math.max(
+    0,
+    ...productionTrends.flatMap((trend) => [trend.target, trend.actual])
+  );
+  const chartMaximum = maxProductionValue > 0 ? Math.ceil(maxProductionValue / 100) * 100 : 0;
+  const chartTicks = chartMaximum > 0
+    ? [chartMaximum, chartMaximum * 0.75, chartMaximum * 0.5, chartMaximum * 0.25, 0].map(Math.round)
+    : [0];
+  const chartPoints = (field) => productionTrends.map((trend, index) => ({
+    x: productionTrends.length > 1 ? 10 + (index * 680) / (productionTrends.length - 1) : 350,
+    y: chartMaximum > 0 ? 120 - (Math.min(trend[field], chartMaximum) / chartMaximum) * 100 : 120,
+  }));
+  const targetPoints = chartPoints('target');
+  const actualPoints = chartPoints('actual');
+  const linePath = (points) => points.map((point, index) =>
+    `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
+  ).join(' ');
+  const areaPath = (points) => points.length
+    ? `${linePath(points)} L ${points[points.length - 1].x} 125 L ${points[0].x} 125 Z`
+    : '';
+  const revenueChange = kpis.revenueChangePercent;
+  const revenueChangeClass = typeof revenueChange !== 'number'
+    ? 'bg-slate-100 text-slate-600 border-slate-200'
+    : revenueChange >= 0
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+      : 'bg-rose-50 text-rose-700 border-rose-200/60';
 
   return (
     <Layout>
@@ -251,11 +308,15 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-1 flex items-center gap-1 relative z-10">
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
-                  <ArrowUp className="w-2.5 h-2.5 text-emerald-600" />
-                  {kpis.totalRevenue > 0 ? '12%' : '0%'}
+                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold border dark:bg-slate-800 dark:border-slate-700 ${revenueChangeClass}`}>
+                  {typeof revenueChange === 'number' && (
+                    revenueChange < 0
+                      ? <ArrowDown className="w-2.5 h-2.5" />
+                      : <ArrowUp className="w-2.5 h-2.5" />
+                  )}
+                  {typeof revenueChange === 'number' ? `${revenueChange > 0 ? '+' : ''}${revenueChange.toFixed(1)}%` : 'N/A'}
                 </span>
-                <span className="text-[10px] text-slate-400 font-medium">vs last month</span>
+                <span className="text-[10px] text-slate-400 font-medium">vs previous month</span>
               </div>
             </div>
 
@@ -535,33 +596,16 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Area Chart matching reference design */}
               <div className="relative h-44 w-full pt-2">
-                {/* Y-axis guidelines & labels */}
                 <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[9px] text-slate-400 font-medium pb-5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-right">400</span>
-                    <div className="flex-1 border-b border-indigo-50/90 dark:border-slate-800" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-right">300</span>
-                    <div className="flex-1 border-b border-indigo-50/90 dark:border-slate-800" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-right">200</span>
-                    <div className="flex-1 border-b border-indigo-50/90 dark:border-slate-800" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-right">100</span>
-                    <div className="flex-1 border-b border-indigo-50/90 dark:border-slate-800" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-right">0</span>
-                    <div className="flex-1 border-b border-slate-200 dark:border-slate-700" />
-                  </div>
+                  {chartTicks.map((tick, index) => (
+                    <div key={`${tick}-${index}`} className="flex items-center gap-2">
+                      <span className="w-5 text-right">{tick.toLocaleString()}</span>
+                      <div className={`flex-1 border-b ${index === chartTicks.length - 1 ? 'border-slate-200 dark:border-slate-700' : 'border-indigo-50/90 dark:border-slate-800'}`} />
+                    </div>
+                  ))}
                 </div>
 
-                {/* SVG Curves */}
                 <div className="absolute inset-0 left-8 right-2 bottom-5 top-1">
                   <svg className="w-full h-full overflow-visible" viewBox="0 0 700 140" preserveAspectRatio="none">
                     <defs>
@@ -578,67 +622,55 @@ export default function DashboardPage() {
                     {hasProductionData ? (
                       <>
                         <path
-                          d="M 10 100 C 80 70, 160 110, 230 90 C 310 80, 390 120, 470 100 C 540 85, 620 110, 690 95 L 690 140 L 10 140 Z"
+                          d={areaPath(targetPoints)}
                           fill="url(#targetGradient)"
                         />
                         <path
-                          d="M 10 100 C 80 70, 160 110, 230 90 C 310 80, 390 120, 470 100 C 540 85, 620 110, 690 95"
+                          d={linePath(targetPoints)}
                           fill="none"
                           stroke="#A5B4FC"
                           strokeWidth="2"
                           strokeDasharray="4 4"
                         />
                         <path
-                          d="M 10 120 C 70 70, 120 55, 180 70 C 240 80, 280 120, 350 100 C 420 90, 470 50, 530 55 C 590 60, 640 90, 690 65 L 690 140 L 10 140 Z"
+                          d={areaPath(actualPoints)}
                           fill="url(#actualGradient)"
                         />
                         <path
-                          d="M 10 120 C 70 70, 120 55, 180 70 C 240 80, 280 120, 350 100 C 420 90, 470 50, 530 55 C 590 60, 640 90, 690 65"
+                          d={linePath(actualPoints)}
                           fill="none"
                           stroke="#4F46E5"
                           strokeWidth="2.5"
                           strokeLinecap="round"
                         />
-                        <circle cx="10" cy="120" r="3.5" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
-                        <circle cx="180" cy="70" r="3.5" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
-                        <circle cx="350" cy="100" r="3.5" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
-                        <circle cx="530" cy="55" r="3.5" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
-                        <circle cx="690" cy="65" r="3.5" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
+                        {actualPoints.map((point, index) => (
+                          <circle
+                            key={productionTrends[index].day}
+                            cx={point.x}
+                            cy={point.y}
+                            r="3.5"
+                            fill="#4F46E5"
+                            stroke="#FFFFFF"
+                            strokeWidth="2"
+                          >
+                            <title>{`${productionTrends[index].day}: ${productionTrends[index].actual} pieces`}</title>
+                          </circle>
+                        ))}
                       </>
-                    ) : (
-                      <>
-                        <path
-                          d="M 10 138 C 150 138, 350 138, 690 138"
-                          fill="none"
-                          stroke="#CBD5E1"
-                          strokeWidth="1.5"
-                          strokeDasharray="3 3"
-                        />
-                        <circle cx="10" cy="138" r="2.5" fill="#94A3B8" />
-                        <circle cx="180" cy="138" r="2.5" fill="#94A3B8" />
-                        <circle cx="350" cy="138" r="2.5" fill="#94A3B8" />
-                        <circle cx="530" cy="138" r="2.5" fill="#94A3B8" />
-                        <circle cx="690" cy="138" r="2.5" fill="#94A3B8" />
-                      </>
-                    )}
+                    ) : null}
                   </svg>
                 </div>
 
-                {/* X-axis Timeline Labels */}
                 <div className="absolute bottom-0 left-8 right-2 flex justify-between text-[10px] font-semibold text-slate-400">
-                  <span>8 AM</span>
-                  <span>10 AM</span>
-                  <span>12 PM</span>
-                  <span>2 PM</span>
-                  <span>4 PM</span>
-                  <span>6 PM</span>
-                  <span>8 PM</span>
+                  {productionTrends.map((trend) => (
+                    <span key={trend.day}>{trend.day}</span>
+                  ))}
                 </div>
               </div>
 
               {!hasProductionData && (
                 <p className="text-[10px] text-center text-slate-400 mt-1 italic">
-                  No production output logged for today yet. Use “+ Log Output” to add entries.
+                  No output or scheduled target is recorded for this week yet. Use “+ Log Output” to add entries.
                 </p>
               )}
             </div>

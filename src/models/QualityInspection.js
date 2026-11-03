@@ -1,3 +1,3 @@
 import { createMySQLModel } from '@/lib/mysql-model.js';
 
-export default createMySQLModel('QualityInspection', ['inspectionNumber']);
+export default createMySQLModel('QualityInspection', ['inspectionNumber', 'submissionRequestId']);

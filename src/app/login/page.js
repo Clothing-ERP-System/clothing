@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { addToast } = useAuth();
+  const { addToast, setUser } = useAuth();
   const [setupRequired, setSetupRequired] = useState(false);
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [setupToken, setSetupToken] = useState('');
+  const [setupAvailable, setSetupAvailable] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -22,7 +24,10 @@ export default function LoginPage() {
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'MySQL connection unavailable');
-        if (active) setSetupRequired(result.data.setupRequired);
+        if (active) {
+          setSetupRequired(result.data.setupRequired);
+          setSetupAvailable(result.data.setupAvailable);
+        }
       })
       .catch((error) => {
         if (active) setDatabaseError(error.message);
@@ -41,13 +46,17 @@ export default function LoginPage() {
       const response = await fetch(setupRequired ? '/api/auth/setup' : '/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(setupRequired ? { name, email, password } : { email, password }),
+        body: JSON.stringify(setupRequired
+          ? { name, email, password, setupToken }
+          : { email, password }),
       });
       const result = await response.json();
       if (!response.ok) {
         if (result.errors?.setupRequired) setSetupRequired(true);
         throw new Error(result.message || 'Unable to continue');
       }
+      if (!result.data?.user) throw new Error('The server did not return an authenticated user');
+      setUser(result.data.user);
       router.replace('/');
     } catch (error) {
       addToast(error.message || 'Unable to connect. Check your MySQL settings.', 'error');
@@ -124,21 +133,49 @@ export default function LoginPage() {
             </div>
           )}
 
+          {setupRequired && !setupAvailable && !checking && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">Owner setup is not enabled</p>
+              <p className="mt-1 text-xs leading-5">
+                The owner must configure INITIAL_SUPERADMIN_SETUP_TOKEN in the server&apos;s .env.local before creating the first administrator.
+              </p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {setupRequired && (
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">Administrator name</span>
-                <span className="relative block">
-                  <UserRound className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    autoComplete="name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    required
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
-                  />
-                </span>
-              </label>
+              <>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">Owner setup token</span>
+                  <span className="relative block">
+                    <ShieldCheck className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="password"
+                      autoComplete="one-time-code"
+                      value={setupToken}
+                      onChange={(event) => setSetupToken(event.target.value)}
+                      required
+                      minLength={32}
+                      disabled={!setupAvailable}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">Administrator name</span>
+                  <span className="relative block">
+                    <UserRound className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      autoComplete="name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                      disabled={!setupAvailable}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </span>
+                </label>
+              </>
             )}
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-slate-700">Work email</span>
@@ -176,7 +213,7 @@ export default function LoginPage() {
             </label>
             <button
               type="submit"
-              disabled={checking || submitting || Boolean(databaseError)}
+              disabled={checking || submitting || Boolean(databaseError) || (setupRequired && !setupAvailable)}
               className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span>{submitting ? 'Please wait…' : setupRequired ? 'Create workspace' : 'Sign in'}</span>

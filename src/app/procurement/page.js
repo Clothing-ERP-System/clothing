@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordAttachments from '@/components/RecordAttachments';
+import PurchaseOrderApproval from '@/components/PurchaseOrderApproval';
+import GRNInspectionModal from '@/components/GRNInspectionModal';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   ShoppingBag,
   Plus,
@@ -20,30 +26,59 @@ import {
 } from 'lucide-react';
 
 export default function ProcurementPage() {
-  const { addToast, user } = useAuth();
+  const { addToast, user, currentBranch } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'suppliers'
 
   // Modals
   const [isNewPOOpen, setIsNewPOOpen] = useState(false);
+  const [isNewSupplierOpen, setIsNewSupplierOpen] = useState(false);
   const [isGrnOpen, setIsGrnOpen] = useState(false);
+  const [isSupplierPaymentOpen, setIsSupplierPaymentOpen] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
+  const [approvalPO, setApprovalPO] = useState(null);
+  const [inspectionTarget, setInspectionTarget] = useState(null);
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
+  const [editingSupplier, setEditingSupplier] = useState(null);
+  const [attachmentSupplier, setAttachmentSupplier] = useState(null);
+  const [editingPurchaseOrder, setEditingPurchaseOrder] = useState(null);
+  const supplierPaymentRequestId = useRef(null);
 
   // New PO Form
   const [newPO, setNewPO] = useState({
     supplierName: '',
     paymentTerms: '',
     expectedDeliveryDate: '',
+    inventoryAccountCode: '',
+    payableAccountCode: '',
     notes: '',
     items: [],
+  });
+  const [newSupplier, setNewSupplier] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    category: '',
+    creditPeriodDays: '',
   });
 
   // GRN Form
   const [grnForm, setGrnForm] = useState({
     challanNumber: '',
+    warehouseLocation: '',
     receivedBy: '',
     receivedItems: [],
+  });
+
+  const [supplierPaymentForm, setSupplierPaymentForm] = useState({
+    amount: '',
+    payableAccountCode: '',
+    paymentAccountCode: '',
+    method: '',
+    referenceNumber: '',
   });
 
   const fetchData = async () => {
@@ -52,6 +87,12 @@ export default function ProcurementPage() {
       const json = await res.json();
       if (json.success) {
         setData(json.data);
+        const accounts = json.data.financialAccounts || [];
+        setNewPO((current) => ({
+          ...current,
+          inventoryAccountCode: current.inventoryAccountCode || accounts.find((account) => account.type === 'Asset')?.code || '',
+          payableAccountCode: current.payableAccountCode || accounts.find((account) => account.type === 'Liability')?.code || '',
+        }));
       }
     } catch (err) {
       console.error('Error fetching procurement:', err);
@@ -69,7 +110,7 @@ export default function ProcurementPage() {
       ...newPO,
       items: [
         ...newPO.items,
-        { itemType: '', description: '', unit: '', orderedQty: '', unitPrice: '' },
+        { stockItemType: '', stockItemId: '', description: '', unit: '', orderedQty: '', unitPrice: '' },
       ],
     });
   };
@@ -100,15 +141,94 @@ export default function ProcurementPage() {
     }
   };
 
+  const handleCreateSupplier = async (event) => {
+    event.preventDefault();
+    try {
+      const response = await fetch('/api/procurement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'CREATE_SUPPLIER', ...newSupplier }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Supplier creation failed', 'error');
+        return;
+      }
+      addToast(`Supplier ${result.data.supplier.supplierCode} created`, 'success');
+      setIsNewSupplierOpen(false);
+      setNewSupplier({
+        name: '',
+        phone: '',
+        email: '',
+        address: '',
+        city: '',
+        category: '',
+        creditPeriodDays: '',
+      });
+      await fetchData();
+    } catch {
+      addToast('Error creating supplier', 'error');
+    }
+  };
+
+  const handleUpdateSupplier = async (supplierId, updates) => {
+    try {
+      const response = await fetch('/api/procurement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_SUPPLIER', supplierId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Supplier update failed', 'error');
+        return false;
+      }
+      addToast('Supplier updated successfully', 'success');
+      setEditingSupplier(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating supplier', 'error');
+      return false;
+    }
+  };
+
+  const handleUpdatePurchaseOrder = async (poId, updates) => {
+    try {
+      const response = await fetch('/api/procurement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_PO', poId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Purchase order update failed', 'error');
+        return false;
+      }
+      addToast('Purchase order details updated', 'success');
+      setEditingPurchaseOrder(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating purchase order', 'error');
+      return false;
+    }
+  };
+
   const openGrnModal = (po) => {
     setSelectedPO(po);
     setGrnForm({
       challanNumber: '',
+      warehouseLocation: currentBranch || '',
       receivedBy: user?.name || '',
       receivedItems: (po.items || []).map((i) => ({
+        lineId: i.lineId,
+        stockItemType: i.stockItemType,
+        stockItemId: i.stockItemId,
         description: i.description,
         quantityReceived: '',
         rollNumbers: [],
+        rollLengths: '',
         remarks: '',
       })),
     });
@@ -125,6 +245,16 @@ export default function ProcurementPage() {
           action: 'RECEIVE_GRN',
           poNumber: selectedPO.poNumber,
           ...grnForm,
+          receivedItems: grnForm.receivedItems.map((item) => ({
+            ...item,
+            rolls: item.stockItemType === 'Fabric'
+              ? item.rollLengths.split(',').map((value) => Number(value.trim())).filter((value) => Number.isFinite(value) && value > 0)
+                .map((meters, index) => ({
+                  meters,
+                  supplierRollNumber: item.rollNumbers[index] || '',
+                }))
+              : [],
+          })),
         }),
       });
       const json = await res.json();
@@ -132,7 +262,7 @@ export default function ProcurementPage() {
         addToast(json.message || 'GRN processing failed', 'error');
         return;
       }
-      addToast(`Goods Receipt Note ${json.data.grnNumber} generated! Inventory updated.`, 'success');
+      addToast(`Goods Receipt Note ${json.data.grnNumber} recorded and held pending inspection.`, 'success');
       setIsGrnOpen(false);
       fetchData();
     } catch {
@@ -140,8 +270,58 @@ export default function ProcurementPage() {
     }
   };
 
+  const openSupplierPayment = (supplier) => {
+    const accounts = data?.financialAccounts || [];
+    const accountCodes = Object.keys(supplier.payableBalances || {});
+    const payableAccountCode = accountCodes.find((code) =>
+      accounts.some((account) => account.code === code && account.type === 'Liability')
+    ) || '';
+    setSelectedSupplier(supplier);
+    supplierPaymentRequestId.current = globalThis.crypto.randomUUID();
+    setSupplierPaymentForm({
+      amount: Number(supplier.payableBalances?.[payableAccountCode] || 0),
+      payableAccountCode,
+      paymentAccountCode: accounts.find((account) => account.type === 'Asset')?.code || '',
+      method: '',
+      referenceNumber: '',
+    });
+    setIsSupplierPaymentOpen(true);
+  };
+
+  const handleSupplierPayment = async (event) => {
+    event.preventDefault();
+    if (!selectedSupplier) return;
+    try {
+      const response = await fetch('/api/procurement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'RECORD_SUPPLIER_PAYMENT',
+          supplierId: selectedSupplier._id,
+          paymentRequestId: supplierPaymentRequestId.current,
+          paidBy: user?.name || '',
+          ...supplierPaymentForm,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Supplier payment failed', 'error');
+        return;
+      }
+      addToast('Supplier payment recorded in finance', 'success');
+      setIsSupplierPaymentOpen(false);
+      supplierPaymentRequestId.current = null;
+      setSelectedSupplier(null);
+      await fetchData();
+    } catch {
+      addToast('Error recording supplier payment', 'error');
+    }
+  };
+
   const suppliers = data?.suppliers || [];
   const purchaseOrders = data?.purchaseOrders || [];
+  const fabricItems = data?.fabricItems || [];
+  const trimItems = data?.trimItems || [];
 
   return (
     <Layout>
@@ -163,13 +343,28 @@ export default function ProcurementPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => setIsNewPOOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Purchase Order</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {activeTab === 'suppliers' && (
+              <button
+                type="button"
+                onClick={() => setIsNewSupplierOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Supplier</span>
+              </button>
+            )}
+            {activeTab === 'orders' && (
+              <button
+                type="button"
+                onClick={() => setIsNewPOOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Purchase Order</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
@@ -248,6 +443,34 @@ export default function ProcurementPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
+                          {(po.status === 'PendingApproval' || po.approvalRequestId) && (
+                            <button
+                              type="button"
+                              onClick={() => setApprovalPO(po)}
+                              className="inline-flex items-center gap-1 mr-2 px-2.5 py-1 text-[11px] font-bold rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                            >
+                              Approval
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setEditingPurchaseOrder(po)}
+                            className="inline-flex items-center gap-1 mr-2 px-2.5 py-1 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                          >
+                            Edit Details
+                          </button>
+                          {!(po.grns || []).length &&
+                            !(po.items || []).some((item) => Number(item.receivedQty) > 0) && (
+                              <RecordDeleteButton
+                                endpoint="/api/procurement"
+                                action="DELETE_PO"
+                                idField="poId"
+                                recordId={po._id}
+                                recordLabel={`purchase order ${po.poNumber}`}
+                                onDeleted={fetchData}
+                                className="inline-flex items-center gap-1 mr-2 px-2.5 py-1 text-[11px] font-bold rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                              />
+                            )}
                           {po.status !== 'Completed' && (
                             <button
                               onClick={() => openGrnModal(po)}
@@ -257,6 +480,18 @@ export default function ProcurementPage() {
                               <span>Receive GRN</span>
                             </button>
                           )}
+                          {user?.role === 'SuperAdmin' || user?.permissions?.includes('procurement:approve')
+                            ? (po.grns || []).filter((grn) => grn.status === 'PendingInspection').map((grn) => (
+                              <button
+                                key={grn.grnNumber}
+                                type="button"
+                                onClick={() => setInspectionTarget({ order: po, grn })}
+                                className="mt-1 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition-colors"
+                              >
+                                Inspect {grn.grnNumber}
+                              </button>
+                            ))
+                            : null}
                         </td>
                       </tr>
                     );
@@ -301,10 +536,192 @@ export default function ProcurementPage() {
                     <span className="font-bold text-[#DC2626]">Rs. {sup.currentBalance?.toLocaleString()}</span>
                   </div>
                 </div>
+                {Number(sup.currentBalance || 0) > 0 && (
+                  <button
+                    onClick={() => openSupplierPayment(sup)}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                  >
+                    Record Supplier Payment
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEditingSupplier(sup)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Edit Supplier
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttachmentSupplier(sup)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Supplier Documents
+                </button>
+                {!purchaseOrders.some((order) =>
+                  String(order.supplierId || '') === String(sup._id) || order.supplierName === sup.name
+                ) && (
+                  <RecordDeleteButton
+                    endpoint="/api/procurement"
+                    action="DELETE_SUPPLIER"
+                    idField="supplierId"
+                    recordId={sup._id}
+                    recordLabel={`supplier ${sup.supplierCode}`}
+                    onDeleted={fetchData}
+                    className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                  />
+                )}
               </div>
             ))}
           </div>
         )}
+
+        <Modal
+          isOpen={isNewSupplierOpen}
+          onClose={() => setIsNewSupplierOpen(false)}
+          title="Add Supplier"
+          subtitle="Register a supplier before creating purchase orders"
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateSupplier)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-bold text-slate-700">
+                Supplier Name
+                <input required value={newSupplier.name} onChange={(event) => setNewSupplier({ ...newSupplier, name: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Phone
+                <input required value={newSupplier.phone} onChange={(event) => setNewSupplier({ ...newSupplier, phone: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Email
+                <input type="email" value={newSupplier.email} onChange={(event) => setNewSupplier({ ...newSupplier, email: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Category
+                <input value={newSupplier.category} onChange={(event) => setNewSupplier({ ...newSupplier, category: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                City
+                <input value={newSupplier.city} onChange={(event) => setNewSupplier({ ...newSupplier, city: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Credit Period (Days)
+                <input type="number" min="0" step="1" value={newSupplier.creditPeriodDays} onChange={(event) => setNewSupplier({ ...newSupplier, creditPeriodDays: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+            </div>
+            <label className="block text-xs font-bold text-slate-700">
+              Address
+              <textarea rows={2} value={newSupplier.address} onChange={(event) => setNewSupplier({ ...newSupplier, address: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setIsNewSupplierOpen(false)} className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button type="submit" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-xs font-bold text-white hover:bg-[#4338CA]">Save Supplier</button>
+            </div>
+          </form>
+        </Modal>
+        <GRNInspectionModal
+          target={inspectionTarget}
+          onClose={() => setInspectionTarget(null)}
+          onCompleted={fetchData}
+        />
+        <Modal
+          isOpen={isSupplierPaymentOpen}
+          onClose={() => {
+            setIsSupplierPaymentOpen(false);
+            supplierPaymentRequestId.current = null;
+          }}
+          title="Record Supplier Payment"
+          subtitle={`${selectedSupplier?.name} • Payable: Rs. ${Number(selectedSupplier?.currentBalance || 0).toLocaleString()}`}
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleSupplierPayment)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Amount</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={supplierPaymentForm.amount}
+                  onChange={(event) => setSupplierPaymentForm({ ...supplierPaymentForm, amount: Number(event.target.value) })}
+                  max={Number(selectedSupplier?.payableBalances?.[supplierPaymentForm.payableAccountCode] || 0)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Method</label>
+                <select
+                  required
+                  value={supplierPaymentForm.method}
+                  onChange={(event) => setSupplierPaymentForm({ ...supplierPaymentForm, method: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select method</option>
+                  <option value="Cash">Cash</option>
+                  <option value="BankTransfer">Bank transfer</option>
+                  <option value="Cheque">Cheque</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Supplier Payable Account</label>
+                <select
+                  required
+                  value={supplierPaymentForm.payableAccountCode}
+                  onChange={(event) => {
+                    const payableAccountCode = event.target.value;
+                    const accountBalance = Number(selectedSupplier?.payableBalances?.[payableAccountCode] || 0);
+                    setSupplierPaymentForm((current) => ({
+                      ...current,
+                      payableAccountCode,
+                      amount: Math.min(Number(current.amount || 0), accountBalance),
+                    }));
+                  }}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select liability account</option>
+                  {(data?.financialAccounts || []).filter((account) =>
+                    account.type === 'Liability' && Number(selectedSupplier?.payableBalances?.[account.code] || 0) > 0
+                  ).map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} — {account.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Cash or Bank Account</label>
+                <select
+                  required
+                  value={supplierPaymentForm.paymentAccountCode}
+                  onChange={(event) => setSupplierPaymentForm({ ...supplierPaymentForm, paymentAccountCode: event.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">Select payment account</option>
+                  {(data?.financialAccounts || []).filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} — {account.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Reference Number</label>
+              <input
+                type="text"
+                value={supplierPaymentForm.referenceNumber}
+                onChange={(event) => setSupplierPaymentForm({ ...supplierPaymentForm, referenceNumber: event.target.value })}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button type="button" onClick={() => setIsSupplierPaymentOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm">
+                Confirm Payment
+              </button>
+            </div>
+          </form>
+        </Modal>
 
         {/* Modal: Create PO */}
         <Modal
@@ -314,7 +731,7 @@ export default function ProcurementPage() {
           subtitle="Generate purchase order for raw fabric, yarn, buttons, or packaging"
           maxWidth="max-w-3xl"
         >
-          <form onSubmit={handleCreatePO} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreatePO)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Supplier</label>
@@ -342,6 +759,37 @@ export default function ProcurementPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <label className="block text-xs font-bold text-slate-700">
+                Inventory Asset Account
+                <select
+                  required
+                  value={newPO.inventoryAccountCode}
+                  onChange={(e) => setNewPO({ ...newPO, inventoryAccountCode: e.target.value })}
+                  className="mt-1 w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                >
+                  <option value="">Select inventory account</option>
+                  {(data?.financialAccounts || []).filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Supplier Payable Account
+                <select
+                  required
+                  value={newPO.payableAccountCode}
+                  onChange={(e) => setNewPO({ ...newPO, payableAccountCode: e.target.value })}
+                  className="mt-1 w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                >
+                  <option value="">Select payable account</option>
+                  {(data?.financialAccounts || []).filter((account) => account.type === 'Liability').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             {/* Line Items */}
             <div className="pt-2">
               <div className="flex justify-between items-center mb-2">
@@ -359,18 +807,42 @@ export default function ProcurementPage() {
               <div className="space-y-2">
                 {newPO.items.map((item, idx) => (
                   <div key={idx} className="flex gap-2 items-center bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                    <input
-                      type="text"
-                      placeholder="Item description / specification"
+                    <select
                       required
-                      value={item.description}
+                      value={item.stockItemType && item.stockItemId ? `${item.stockItemType}:${item.stockItemId}` : ''}
                       onChange={(e) => {
+                        const [stockItemType, stockItemId] = e.target.value.split(':');
+                        const stockItem = stockItemType === 'Fabric'
+                          ? fabricItems.find((candidate) => candidate.id === stockItemId)
+                          : trimItems.find((candidate) => candidate.id === stockItemId);
                         const updated = [...newPO.items];
-                        updated[idx].description = e.target.value;
+                        updated[idx] = {
+                          ...updated[idx],
+                          stockItemType: stockItem ? stockItemType : '',
+                          stockItemId: stockItem?.id || '',
+                          description: stockItem?.name || '',
+                          unit: stockItem?.unit || '',
+                        };
                         setNewPO({ ...newPO, items: updated });
                       }}
-                      className="flex-2 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none focus:border-[#4F46E5]"
-                    />
+                      className="min-w-0 flex-2 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">Select stock item</option>
+                      <optgroup label="Fabric">
+                        {fabricItems.map((stockItem) => (
+                          <option key={stockItem.id} value={`Fabric:${stockItem.id}`}>
+                            {stockItem.code} - {stockItem.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Trims">
+                        {trimItems.map((stockItem) => (
+                          <option key={stockItem.id} value={`Trim:${stockItem.id}`}>
+                            {stockItem.code} - {stockItem.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
 
                     <input
                       type="number"
@@ -460,13 +932,30 @@ export default function ProcurementPage() {
 
         {/* Modal: Process GRN */}
         <Modal
+          isOpen={Boolean(approvalPO)}
+          onClose={() => setApprovalPO(null)}
+          title={`Purchase Order Approval: ${approvalPO?.poNumber || ''}`}
+          subtitle={approvalPO?.supplierName || ''}
+          maxWidth="max-w-2xl"
+        >
+          {approvalPO && (
+            <PurchaseOrderApproval
+              order={approvalPO}
+              onUpdated={async () => {
+                await fetchData();
+                setApprovalPO(null);
+              }}
+            />
+          )}
+        </Modal>
+        <Modal
           isOpen={isGrnOpen}
           onClose={() => setIsGrnOpen(false)}
           title={`Process Goods Receipt Note (GRN)`}
           subtitle={`PO Reference: ${selectedPO?.poNumber} (${selectedPO?.supplierName})`}
           maxWidth="max-w-2xl"
         >
-          <form onSubmit={handleProcessGRN} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleProcessGRN)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Supplier Delivery Challan #</label>
@@ -491,12 +980,23 @@ export default function ProcurementPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Receiving Warehouse</label>
+              <input
+                type="text"
+                required
+                value={grnForm.warehouseLocation}
+                onChange={(e) => setGrnForm({ ...grnForm, warehouseLocation: e.target.value })}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              />
+            </div>
+
             <div className="space-y-3 pt-2">
               <label className="text-xs font-bold text-slate-700 block">Received Items & Quantities</label>
               {grnForm.receivedItems.map((item, idx) => (
                 <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
                   <div className="font-bold text-slate-800">{item.description}</div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={`grid ${item.stockItemType === 'Fabric' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
                     <div>
                       <label className="text-[11px] text-slate-500 block mb-0.5">Quantity Received</label>
                       <input
@@ -511,20 +1011,38 @@ export default function ProcurementPage() {
                         className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none"
                       />
                     </div>
-
-                    <div>
-                      <label className="text-[11px] text-slate-500 block mb-0.5">Assigned Roll/Lot #</label>
-                      <input
-                        type="text"
-                        value={item.rollNumbers?.join(', ')}
-                        onChange={(e) => {
-                          const updated = [...grnForm.receivedItems];
-                          updated[idx].rollNumbers = e.target.value.split(',').map((s) => s.trim());
-                          setGrnForm({ ...grnForm, receivedItems: updated });
-                        }}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none"
-                      />
-                    </div>
+                    {item.stockItemType === 'Fabric' && (
+                      <>
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-0.5">Roll lengths in meters</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 50, 45.5"
+                            value={item.rollLengths}
+                            onChange={(e) => {
+                              const updated = [...grnForm.receivedItems];
+                              updated[idx].rollLengths = e.target.value;
+                              setGrnForm({ ...grnForm, receivedItems: updated });
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500 block mb-0.5">Supplier roll refs (optional)</label>
+                          <input
+                            type="text"
+                            placeholder="Same order as lengths"
+                            value={item.rollNumbers?.join(', ')}
+                            onChange={(e) => {
+                              const updated = [...grnForm.receivedItems];
+                              updated[idx].rollNumbers = e.target.value.split(',').map((value) => value.trim());
+                              setGrnForm({ ...grnForm, receivedItems: updated });
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded focus:outline-none"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -547,7 +1065,44 @@ export default function ProcurementPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingSupplier)}
+          onClose={() => setEditingSupplier(null)}
+          record={editingSupplier}
+          title={`Edit Supplier: ${editingSupplier?.supplierCode || ''}`}
+          fields={SUPPLIER_EDIT_FIELDS}
+          onSave={handleUpdateSupplier}
+        />
+        <RecordAttachments
+          module="procurement"
+          record={attachmentSupplier}
+          onClose={() => setAttachmentSupplier(null)}
+        />
+        <RecordEditModal
+          isOpen={Boolean(editingPurchaseOrder)}
+          onClose={() => setEditingPurchaseOrder(null)}
+          record={editingPurchaseOrder}
+          title={`Edit Purchase Order: ${editingPurchaseOrder?.poNumber || ''}`}
+          fields={PURCHASE_ORDER_EDIT_FIELDS}
+          onSave={handleUpdatePurchaseOrder}
+        />
       </div>
     </Layout>
   );
 }
+
+const SUPPLIER_EDIT_FIELDS = [
+  { name: 'name', label: 'Supplier Name', required: true },
+  { name: 'phone', label: 'Phone', required: true },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'address', label: 'Address' },
+  { name: 'city', label: 'City' },
+  { name: 'category', label: 'Category' },
+  { name: 'creditPeriodDays', label: 'Credit Period (Days)', type: 'number', min: 0 },
+];
+
+const PURCHASE_ORDER_EDIT_FIELDS = [
+  { name: 'paymentTerms', label: 'Payment Terms' },
+  { name: 'expectedDeliveryDate', label: 'Expected Delivery Date', type: 'date' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
+];

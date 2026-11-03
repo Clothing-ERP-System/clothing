@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordAttachments from '@/components/RecordAttachments';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   CheckCircle2,
   Plus,
@@ -16,10 +20,14 @@ import {
 } from 'lucide-react';
 
 export default function QualityFinishingPage() {
-  const { addToast } = useAuth();
+  const { addToast, currentBranch } = useAuth();
   const [inspections, setInspections] = useState([]);
+  const [finalQcOrders, setFinalQcOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingInspection, setEditingInspection] = useState(null);
+  const [attachmentInspection, setAttachmentInspection] = useState(null);
+  const submissionRequestId = useRef(null);
 
   // New Inspection Form
   const [newAudit, setNewAudit] = useState({
@@ -31,6 +39,7 @@ export default function QualityFinishingPage() {
     passedQuantity: '',
     reworkQuantity: '',
     rejectedQuantity: '',
+    acceptedForStockQuantity: '',
     finalVerdict: '',
     remarks: '',
   });
@@ -41,6 +50,7 @@ export default function QualityFinishingPage() {
       const json = await res.json();
       if (json.success) {
         setInspections(json.data.inspections || []);
+        setFinalQcOrders(json.data.finalQcOrders || []);
       }
     } catch (err) {
       console.error('Error fetching QC data:', err);
@@ -56,10 +66,18 @@ export default function QualityFinishingPage() {
   const handleCreateAudit = async (e) => {
     e.preventDefault();
     try {
+      if (!submissionRequestId.current) {
+        submissionRequestId.current = globalThis.crypto.randomUUID();
+      }
       const res = await fetch('/api/quality', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'CREATE_INSPECTION', ...newAudit }),
+        body: JSON.stringify({
+          action: 'CREATE_INSPECTION',
+          submissionRequestId: submissionRequestId.current,
+          warehouseLocation: currentBranch,
+          ...newAudit,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -67,10 +85,33 @@ export default function QualityFinishingPage() {
         return;
       }
       addToast(`QC Report ${json.data.inspection?.inspectionNumber} logged successfully!`, 'success');
+      submissionRequestId.current = null;
       setIsAddOpen(false);
       fetchData();
     } catch {
       addToast('Error saving QC report', 'error');
+    }
+  };
+
+  const handleUpdateInspection = async (inspectionId, updates) => {
+    try {
+      const response = await fetch('/api/quality', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_INSPECTION', inspectionId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Inspection update failed', 'error');
+        return false;
+      }
+      addToast('Inspection details updated', 'success');
+      setEditingInspection(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating inspection', 'error');
+      return false;
     }
   };
 
@@ -95,7 +136,23 @@ export default function QualityFinishingPage() {
           </div>
 
           <button
-            onClick={() => setIsAddOpen(true)}
+            onClick={() => {
+              setNewAudit({
+                stage: '',
+                referenceOrder: '',
+                articleCode: '',
+                inspectorName: '',
+                totalSampleChecked: '',
+                passedQuantity: '',
+                reworkQuantity: '',
+                rejectedQuantity: '',
+                acceptedForStockQuantity: '',
+                finalVerdict: '',
+                remarks: '',
+              });
+              submissionRequestId.current = null;
+              setIsAddOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -137,6 +194,33 @@ export default function QualityFinishingPage() {
                     Inspector: <span className="font-bold text-slate-800">{qc.inspectorName}</span>
                   </div>
                 </div>
+                {qc.stage !== 'FinalGarmentQC' && Number(qc.acceptedForStockQuantity || 0) === 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingInspection(qc)}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      Edit Inspection
+                    </button>
+                    <RecordDeleteButton
+                      endpoint="/api/quality"
+                      action="DELETE_INSPECTION"
+                      idField="inspectionId"
+                      recordId={qc._id}
+                      recordLabel={`inspection ${qc.inspectionNumber}`}
+                      onDeleted={fetchData}
+                      className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50"
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAttachmentInspection(qc)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Inspection Evidence
+                </button>
 
                 {/* Metrics */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -188,7 +272,7 @@ export default function QualityFinishingPage() {
           title="Log Quality Inspection Audit"
           subtitle="Record pass/rework metrics, defects, and finishing approvals"
         >
-          <form onSubmit={handleCreateAudit} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateAudit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Inspection Stage</label>
@@ -197,6 +281,7 @@ export default function QualityFinishingPage() {
                   onChange={(e) => setNewAudit({ ...newAudit, stage: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 >
+                  <option value="">Select inspection stage</option>
                   <option value="IncomingFabric">Incoming Raw Fabric</option>
                   <option value="InProcessStitching">In-Process Inline Sewing</option>
                   <option value="FinalGarmentQC">Final Garment Audit (AQL 2.5)</option>
@@ -206,15 +291,71 @@ export default function QualityFinishingPage() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Reference Order #</label>
-                <input
-                  type="text"
-                  required
-                  value={newAudit.referenceOrder}
-                  onChange={(e) => setNewAudit({ ...newAudit, referenceOrder: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
-                />
+                {newAudit.stage === 'FinalGarmentQC' ? (
+                  <select
+                    required
+                    value={newAudit.referenceOrder}
+                    onChange={(event) => {
+                      const order = finalQcOrders.find((item) =>
+                        item.productionOrderNumber === event.target.value
+                      );
+                      setNewAudit({
+                        ...newAudit,
+                        referenceOrder: order?.productionOrderNumber || '',
+                        articleCode: order?.designCode || '',
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  >
+                    <option value="">Select a finishing-complete production order</option>
+                    {finalQcOrders.map((order) => (
+                      <option key={order._id} value={order.productionOrderNumber}>
+                        {order.productionOrderNumber} — {order.articleName}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    value={newAudit.referenceOrder}
+                    onChange={(e) => setNewAudit({ ...newAudit, referenceOrder: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                )}
               </div>
             </div>
+
+            {newAudit.stage === 'FinalGarmentQC' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Final Verdict</label>
+                  <select
+                    required
+                    value={newAudit.finalVerdict}
+                    onChange={(e) => setNewAudit({ ...newAudit, finalVerdict: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  >
+                    <option value="">Select verdict</option>
+                    <option value="Passed">Passed</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Quantity approved for finished stock</label>
+                  <input
+                    type="number"
+                    min={newAudit.finalVerdict === 'Passed' ? '1' : '0'}
+                    step="1"
+                    required={newAudit.finalVerdict === 'Passed'}
+                    value={newAudit.acceptedForStockQuantity}
+                    onChange={(e) => setNewAudit({ ...newAudit, acceptedForStockQuantity: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <p className="col-span-2 text-[11px] text-slate-500">Only production orders with completed finishing are available for final QC.</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-4 gap-3">
               <div>
@@ -298,7 +439,32 @@ export default function QualityFinishingPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingInspection)}
+          onClose={() => setEditingInspection(null)}
+          record={editingInspection}
+          title={`Edit Inspection: ${editingInspection?.inspectionNumber || ''}`}
+          fields={QUALITY_INSPECTION_EDIT_FIELDS}
+          onSave={handleUpdateInspection}
+        />
+        <RecordAttachments
+          module="quality"
+          record={attachmentInspection}
+          onClose={() => setAttachmentInspection(null)}
+        />
       </div>
     </Layout>
   );
 }
+
+const QUALITY_INSPECTION_EDIT_FIELDS = [
+  { name: 'stage', label: 'Inspection Stage', type: 'select', required: true, options: ['IncomingFabric', 'InProcessStitching', 'PreShipmentAudit'] },
+  { name: 'referenceOrder', label: 'Reference Order', required: true },
+  { name: 'articleCode', label: 'Article Code' },
+  { name: 'inspectorName', label: 'Inspector', required: true },
+  { name: 'totalSampleChecked', label: 'Sample Checked', type: 'number', required: true, min: 1, step: 1 },
+  { name: 'passedQuantity', label: 'Passed Quantity', type: 'number', required: true, min: 0, step: 1 },
+  { name: 'reworkQuantity', label: 'Rework Quantity', type: 'number', min: 0, step: 1 },
+  { name: 'rejectedQuantity', label: 'Rejected Quantity', type: 'number', min: 0, step: 1 },
+  { name: 'remarks', label: 'Remarks', type: 'textarea' },
+];

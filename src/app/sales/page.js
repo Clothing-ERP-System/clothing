@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Users2,
   Plus,
@@ -18,7 +21,7 @@ import {
 } from 'lucide-react';
 
 export default function SalesCustomersPage() {
-  const { addToast } = useAuth();
+  const { addToast, currentBranch, user } = useAuth();
   const [data, setData] = useState(null);
   const [designs, setDesigns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +32,25 @@ export default function SalesCustomersPage() {
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [editingCustomer, setEditingCustomer] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [collectionMethod, setCollectionMethod] = useState('Cash');
+  const [collectionAccountCode, setCollectionAccountCode] = useState('');
+  const [collectionReference, setCollectionReference] = useState('');
+  const paymentRequestId = useRef(null);
+  const salesOrderRequestId = useRef(null);
+  const [isReturnOpen, setIsReturnOpen] = useState(false);
+  const [returnOrder, setReturnOrder] = useState(null);
+  const [returnLines, setReturnLines] = useState([]);
+  const [financialAccounts, setFinancialAccounts] = useState([]);
+  const [salesReturnsAccountCode, setSalesReturnsAccountCode] = useState('');
+  const [receivableAccountCode, setReceivableAccountCode] = useState('');
+  const [refundAccountCode, setRefundAccountCode] = useState('');
+  const [revenueAccountCode, setRevenueAccountCode] = useState('');
+  const [advancePaymentAccountCode, setAdvancePaymentAccountCode] = useState('');
+  const [returnReason, setReturnReason] = useState('');
+  const returnRequestId = useRef(null);
   const [newCustomer, setNewCustomer] = useState({
     name: '',
     businessName: '',
@@ -49,6 +70,7 @@ export default function SalesCustomersPage() {
     salesRep: '',
     shippingFee: '',
     amountPaid: '',
+    paymentMethod: 'Cash',
     items: [{ articleCode: '', title: '', size: '', unitRetailPrice: '', quantity: '', discountPercentApplied: 0 }],
   });
 
@@ -62,7 +84,16 @@ export default function SalesCustomersPage() {
         salesResponse.json(),
         designResponse.json(),
       ]);
-      if (salesResult.success) setData(salesResult.data);
+      if (salesResult.success) {
+        setData(salesResult.data);
+        const accounts = salesResult.data.financialAccounts || [];
+        setFinancialAccounts(accounts);
+        setRevenueAccountCode((current) => current || accounts.find((account) => account.type === 'Revenue')?.code || '');
+        setAdvancePaymentAccountCode((current) => current || accounts.find((account) => account.type === 'Asset')?.code || '');
+        setSalesReturnsAccountCode((current) => current || accounts.find((account) => account.type === 'Revenue')?.code || '');
+        setReceivableAccountCode((current) => current || accounts.find((account) => account.type === 'Asset')?.code || '');
+        setRefundAccountCode((current) => current || accounts.find((account) => account.type === 'Asset')?.code || '');
+      }
       if (designResult.success) setDesigns(designResult.data.designs || []);
     } catch (err) {
       console.error('Error fetching sales data:', err);
@@ -78,10 +109,21 @@ export default function SalesCustomersPage() {
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     try {
+      if (!salesOrderRequestId.current) {
+        salesOrderRequestId.current = globalThis.crypto.randomUUID();
+      }
       const res = await fetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'CREATE_SALES_ORDER', ...newOrder }),
+        body: JSON.stringify({
+          action: 'CREATE_SALES_ORDER',
+          creationRequestId: salesOrderRequestId.current,
+          warehouseLocation: currentBranch,
+          revenueAccountCode,
+          receivableAccountCode,
+          paymentAccountCode: advancePaymentAccountCode,
+          ...newOrder,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -90,9 +132,68 @@ export default function SalesCustomersPage() {
       }
       addToast(`Sales Order ${json.data.salesOrder?.orderNumber} created!`, 'success');
       setIsNewOrderOpen(false);
-      fetchData();
+      salesOrderRequestId.current = null;
+      await fetchData();
     } catch {
       addToast('Error saving sales order', 'error');
+    }
+  };
+
+  const openReturnModal = (order) => {
+    const sold = new Map();
+    const returned = new Map();
+    for (const item of order.items || []) {
+      sold.set(item.articleCode, (sold.get(item.articleCode) || 0) + Number(item.quantity));
+    }
+    for (const record of order.returns || []) {
+      for (const item of record.items || []) {
+        returned.set(item.articleCode, (returned.get(item.articleCode) || 0) + Number(item.quantity));
+      }
+    }
+    setReturnLines([...sold.entries()].map(([articleCode, quantity]) => ({
+      articleCode,
+      soldQuantity: quantity,
+      quantity: '',
+      availableQuantity: quantity - (returned.get(articleCode) || 0),
+    })));
+    setReturnOrder(order);
+    setReturnReason('');
+    returnRequestId.current = globalThis.crypto.randomUUID();
+    setIsReturnOpen(true);
+  };
+
+  const handleProcessReturn = async (event) => {
+    event.preventDefault();
+    if (!returnOrder) return;
+    try {
+      const response = await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'PROCESS_SALES_RETURN',
+          orderId: returnOrder._id,
+          returnRequestId: returnRequestId.current,
+          items: returnLines.filter((line) => Number(line.quantity) > 0),
+          salesReturnsAccountCode,
+          receivableAccountCode,
+          refundAccountCode,
+          refundMethod: 'Cash',
+          receivedBy: user?.name || '',
+          reason: returnReason,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Return processing failed', 'error');
+        return;
+      }
+      addToast(`Sales return processed for ${result.data.salesOrder.orderNumber}`, 'success');
+      setIsReturnOpen(false);
+      setReturnOrder(null);
+      returnRequestId.current = null;
+      await fetchData();
+    } catch {
+      addToast('Error processing sales return', 'error');
     }
   };
 
@@ -127,9 +228,57 @@ export default function SalesCustomersPage() {
     }
   };
 
+  const handleUpdateCustomer = async (customerId, updates) => {
+    try {
+      const response = await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_CUSTOMER', customerId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Customer update failed', 'error');
+        return false;
+      }
+      addToast('Customer updated successfully', 'success');
+      setEditingCustomer(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating customer', 'error');
+      return false;
+    }
+  };
+
+  const handleUpdateOrder = async (orderId, updates) => {
+    try {
+      const response = await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_SALES_ORDER', orderId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Sales order update failed', 'error');
+        return false;
+      }
+      addToast('Sales order details updated', 'success');
+      setEditingOrder(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating sales order', 'error');
+      return false;
+    }
+  };
+
   const openPaymentModal = (order) => {
     setSelectedOrder(order);
     setPaymentAmount(Math.max(0, (order.grandTotal || 0) - (order.amountPaid || 0)));
+    setCollectionMethod('Cash');
+    setCollectionAccountCode(financialAccounts.find((account) => account.type === 'Asset')?.code || '');
+    setCollectionReference('');
+    paymentRequestId.current = globalThis.crypto.randomUUID();
     setIsPaymentOpen(true);
   };
 
@@ -145,6 +294,12 @@ export default function SalesCustomersPage() {
           action: 'RECORD_PAYMENT',
           orderId: selectedOrder._id,
           amount: Number(paymentAmount),
+          paymentRequestId: paymentRequestId.current,
+          method: collectionMethod,
+          paymentAccountCode: collectionAccountCode,
+          receivableAccountCode,
+          referenceNumber: collectionReference,
+          receivedBy: user?.name || '',
         }),
       });
       const json = await res.json();
@@ -154,7 +309,8 @@ export default function SalesCustomersPage() {
       }
       addToast(`Payment of Rs. ${paymentAmount.toLocaleString()} recorded!`, 'success');
       setIsPaymentOpen(false);
-      fetchData();
+      paymentRequestId.current = null;
+      await fetchData();
     } catch {
       addToast('Error saving payment', 'error');
     }
@@ -192,7 +348,20 @@ export default function SalesCustomersPage() {
               <span>Add Customer</span>
             </button>
             <button
-              onClick={() => setIsNewOrderOpen(true)}
+              onClick={() => {
+                setNewOrder({
+                  customerId: '',
+                  customerName: '',
+                  customerTier: '',
+                  salesRep: user?.name || '',
+                  shippingFee: '',
+                  amountPaid: 0,
+                  paymentMethod: 'Cash',
+                  items: [{ articleCode: '', title: '', size: '', unitRetailPrice: '', quantity: '', discountPercentApplied: 0 }],
+                });
+                salesOrderRequestId.current = globalThis.crypto.randomUUID();
+                setIsNewOrderOpen(true);
+              }}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -283,13 +452,28 @@ export default function SalesCustomersPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setEditingOrder(order)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                          >
+                            Edit Details
+                          </button>
                           {order.paymentStatus !== 'PaidInFull' && (
                             <button
                               onClick={() => openPaymentModal(order)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                             >
                               <DollarSign className="w-3.5 h-3.5" />
-                              <span>Receive Cash</span>
+                              <span>Receive Payment</span>
+                            </button>
+                          )}
+                          {order.status === 'Delivered' && (
+                            <button
+                              onClick={() => openReturnModal(order)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 ml-2 text-[11px] font-bold rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                            >
+                              <span>Return Items</span>
                             </button>
                           )}
                         </td>
@@ -335,6 +519,24 @@ export default function SalesCustomersPage() {
                     <span className="text-slate-400">Current Receivable:</span>
                     <span className="font-bold text-[#DC2626]">Rs. {c.currentReceivableBalance?.toLocaleString()}</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingCustomer(c)}
+                    className="w-full rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Edit Customer
+                  </button>
+                  {!salesOrders.some((order) => String(order.customerId || '') === String(c._id)) && (
+                    <RecordDeleteButton
+                      endpoint="/api/sales"
+                      action="DELETE_CUSTOMER"
+                      idField="customerId"
+                      recordId={c._id}
+                      recordLabel={`customer ${c.customerCode}`}
+                      onDeleted={fetchData}
+                      className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -348,7 +550,7 @@ export default function SalesCustomersPage() {
           title="Add Customer"
           subtitle="Enter customer details and commercial terms"
         >
-          <form onSubmit={handleCreateCustomer} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateCustomer)} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <input
                 type="text"
@@ -422,16 +624,20 @@ export default function SalesCustomersPage() {
         {/* Modal: Create Sales Order */}
         <Modal
           isOpen={isNewOrderOpen}
-          onClose={() => setIsNewOrderOpen(false)}
+          onClose={() => {
+            setIsNewOrderOpen(false);
+            salesOrderRequestId.current = null;
+          }}
           title="Create Wholesale Sales Order"
           subtitle="Tier discount is automatically applied to bill totals"
         >
-          <form onSubmit={handleCreateOrder} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateOrder)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Customer</label>
                 <select
-                  value={newOrder.customerName}
+                  required
+                  value={newOrder.customerId}
                   onChange={(e) => {
                     const sel = customers.find((c) => c._id === e.target.value);
                     const tier = sel?.tier || '';
@@ -531,10 +737,55 @@ export default function SalesCustomersPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-bold text-slate-700">
+                Sales revenue account
+                <select required value={revenueAccountCode} onChange={(event) => setRevenueAccountCode(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select revenue account</option>
+                  {financialAccounts.filter((account) => account.type === 'Revenue').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-bold text-slate-700">
+                Customer receivables account
+                <select required value={receivableAccountCode} onChange={(event) => setReceivableAccountCode(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select asset account</option>
+                  {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+              {Number(newOrder.amountPaid) > 0 && (
+                <>
+                  <label className="text-xs font-bold text-slate-700">
+                    Advance payment method
+                    <select required value={newOrder.paymentMethod} onChange={(event) => setNewOrder({ ...newOrder, paymentMethod: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                      <option value="Cash">Cash</option>
+                      <option value="BankTransfer">Bank transfer</option>
+                      <option value="CreditCard">Credit card</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-bold text-slate-700">
+                    Advance payment account
+                    <select required value={advancePaymentAccountCode} onChange={(event) => setAdvancePaymentAccountCode(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                      <option value="">Select asset account</option>
+                      {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                        <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setIsNewOrderOpen(false)}
+                onClick={() => {
+                  setIsNewOrderOpen(false);
+                  salesOrderRequestId.current = null;
+                }}
                 className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
               >
                 Cancel
@@ -556,7 +807,7 @@ export default function SalesCustomersPage() {
           title="Record Customer Payment"
           subtitle={`Order ${selectedOrder?.orderNumber} (${selectedOrder?.customerName})`}
         >
-          <form onSubmit={handleRecordPayment} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleRecordPayment)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Payment Amount (PKR)</label>
               <input
@@ -567,6 +818,29 @@ export default function SalesCustomersPage() {
                 className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-bold text-slate-700">
+                Payment method
+                <select required value={collectionMethod} onChange={(event) => setCollectionMethod(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="Cash">Cash</option>
+                  <option value="BankTransfer">Bank transfer</option>
+                  <option value="CreditCard">Credit card</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold text-slate-700">
+                Cash or bank account
+                <select required value={collectionAccountCode} onChange={(event) => setCollectionAccountCode(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select asset account</option>
+                  {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="block text-xs font-bold text-slate-700">
+              Reference number
+              <input type="text" value={collectionReference} onChange={(event) => setCollectionReference(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+            </label>
 
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
               <button
@@ -585,7 +859,107 @@ export default function SalesCustomersPage() {
             </div>
           </form>
         </Modal>
+
+        <Modal
+          isOpen={isReturnOpen}
+          onClose={() => setIsReturnOpen(false)}
+          title="Process Sales Return"
+          subtitle={`Order ${returnOrder?.orderNumber || ''}`}
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleProcessReturn)} className="space-y-4">
+            <div className="space-y-2">
+              {returnLines.map((line) => (
+                <div key={line.articleCode} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-xs">
+                  <span className="font-mono font-semibold text-slate-800">{line.articleCode}</span>
+                  <span className="text-slate-500">Available: {line.availableQuantity}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={line.availableQuantity}
+                    step="1"
+                    value={line.quantity}
+                    onChange={(event) => setReturnLines((current) => current.map((item) =>
+                      item.articleCode === line.articleCode ? { ...item, quantity: event.target.value } : item
+                    ))}
+                    className="w-24 px-2 py-1.5 border border-slate-200 rounded"
+                    aria-label={`Return quantity for ${line.articleCode}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-bold text-slate-700">
+                Sales returns account
+                <select required value={salesReturnsAccountCode} onChange={(event) => setSalesReturnsAccountCode(event.target.value)} className="mt-1 w-full px-2 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select revenue account</option>
+                  {financialAccounts.filter((account) => account.type === 'Revenue').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-bold text-slate-700">
+                Receivables account
+                <select required value={receivableAccountCode} onChange={(event) => setReceivableAccountCode(event.target.value)} className="mt-1 w-full px-2 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select asset account</option>
+                  {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="col-span-2 text-xs font-bold text-slate-700">
+                Refund account (when paid)
+                <select value={refundAccountCode} onChange={(event) => setRefundAccountCode(event.target.value)} className="mt-1 w-full px-2 py-2 font-normal border border-slate-200 rounded-lg">
+                  <option value="">Select asset account</option>
+                  {financialAccounts.filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="block text-xs font-bold text-slate-700">
+              Return reason
+              <textarea required rows={2} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setIsReturnOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Cancel</button>
+              <button type="submit" className="px-4 py-2 text-xs font-bold text-white bg-amber-600 rounded-lg">Confirm Return & Refund</button>
+            </div>
+          </form>
+        </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingCustomer)}
+          onClose={() => setEditingCustomer(null)}
+          record={editingCustomer}
+          title={`Edit Customer: ${editingCustomer?.customerCode || ''}`}
+          fields={CUSTOMER_EDIT_FIELDS}
+          onSave={handleUpdateCustomer}
+        />
+        <RecordEditModal
+          isOpen={Boolean(editingOrder)}
+          onClose={() => setEditingOrder(null)}
+          record={editingOrder}
+          title={`Edit Sales Order: ${editingOrder?.orderNumber || ''}`}
+          fields={SALES_ORDER_EDIT_FIELDS}
+          onSave={handleUpdateOrder}
+        />
       </div>
     </Layout>
   );
 }
+
+const CUSTOMER_EDIT_FIELDS = [
+  { name: 'name', label: 'Customer Name', required: true },
+  { name: 'businessName', label: 'Business Name' },
+  { name: 'phone', label: 'Phone', required: true },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'city', label: 'City' },
+  { name: 'tier', label: 'Customer Tier' },
+  { name: 'defaultTierDiscountPercent', label: 'Default Discount (%)', type: 'number', min: 0, max: 100, step: 'any' },
+  { name: 'creditLimitPKR', label: 'Credit Limit (PKR)', type: 'number', min: 0, step: 'any' },
+];
+
+const SALES_ORDER_EDIT_FIELDS = [
+  { name: 'salesRep', label: 'Sales Representative' },
+  { name: 'deliveryDueDate', label: 'Delivery Due Date', type: 'date' },
+  { name: 'notes', label: 'Notes', type: 'textarea' },
+];

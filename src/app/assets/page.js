@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Wrench,
   Plus,
@@ -26,7 +29,17 @@ export default function AssetsFleetPage() {
   const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
   const [isLogMaintenanceOpen, setIsLogMaintenanceOpen] = useState(false);
   const [isLogTripOpen, setIsLogTripOpen] = useState(false);
+  const [isDepreciationOpen, setIsDepreciationOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState(null);
+  const [depAsset, setDepAsset] = useState(null);
+  const [editingAsset, setEditingAsset] = useState(null);
+
+  const [depForm, setDepForm] = useState({
+    amountPKR: '',
+    expenseAccountCode: '',
+    accumulatedAccountCode: '',
+    notes: '',
+  });
 
   // New Asset Form
   const [newAsset, setNewAsset] = useState({
@@ -94,6 +107,28 @@ export default function AssetsFleetPage() {
     }
   };
 
+  const handleUpdateAsset = async (assetId, updates) => {
+    try {
+      const response = await fetch('/api/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_ASSET', assetId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Asset update failed', 'error');
+        return false;
+      }
+      addToast('Asset details updated successfully', 'success');
+      setEditingAsset(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating asset', 'error');
+      return false;
+    }
+  };
+
   const openMaintModal = (asset) => {
     setSelectedAsset(asset);
     setIsLogMaintenanceOpen(true);
@@ -147,8 +182,35 @@ export default function AssetsFleetPage() {
     }
   };
 
+  const handleApplyDepreciation = async (e) => {
+    e.preventDefault();
+    if (!depAsset) return;
+    try {
+      const res = await fetch('/api/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'APPLY_DEPRECIATION',
+          assetId: depAsset._id,
+          ...depForm,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        addToast(json.message || 'Failed to apply depreciation', 'error');
+        return;
+      }
+      addToast('Asset depreciation posted successfully!', 'success');
+      setIsDepreciationOpen(false);
+      fetchData();
+    } catch {
+      addToast('Error applying depreciation', 'error');
+    }
+  };
+
   const assets = data?.assets || [];
   const trips = data?.trips || [];
+  const financialAccounts = data?.financialAccounts || [];
 
   return (
     <Layout>
@@ -252,6 +314,44 @@ export default function AssetsFleetPage() {
                   <Wrench className="w-3.5 h-3.5" />
                   <span>Log Service Maintenance</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepAsset(asset);
+                    const usefulLife = Number(asset.usefulLifeYears) || 5;
+                    const recommended = Math.round((Number(asset.originalCostPKR) || 0) / usefulLife);
+                    const bookVal = Number(asset.currentBookValuePKR ?? asset.originalCostPKR ?? 0);
+                    setDepForm({
+                      amountPKR: Math.min(bookVal, recommended),
+                      expenseAccountCode: '',
+                      accumulatedAccountCode: '',
+                      notes: `Annual straight-line depreciation (${usefulLife} yrs)`,
+                    });
+                    setIsDepreciationOpen(true);
+                  }}
+                  className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg border border-amber-200 text-amber-800 text-xs font-bold hover:bg-amber-50 transition-colors"
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  <span>Apply Depreciation</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingAsset(asset)}
+                  className="w-full py-2 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors"
+                >
+                  Edit Asset Details
+                </button>
+                {(asset.maintenanceHistory || []).length === 0 && (
+                  <RecordDeleteButton
+                    endpoint="/api/assets"
+                    action="DELETE_ASSET"
+                    idField="assetId"
+                    recordId={asset._id}
+                    recordLabel={`asset ${asset.assetCode}`}
+                    onDeleted={fetchData}
+                    className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -306,7 +406,7 @@ export default function AssetsFleetPage() {
           title="Register Fixed Plant Asset"
           subtitle="Add sewing machines, straight knives, boilers, or fleet vans"
         >
-          <form onSubmit={handleCreateAsset} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateAsset)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Equipment Name</label>
               <input
@@ -395,7 +495,7 @@ export default function AssetsFleetPage() {
           title={`Log Maintenance: ${selectedAsset?.assetName}`}
           subtitle={`Asset Code: ${selectedAsset?.assetCode}`}
         >
-          <form onSubmit={handleLogMaintenance} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleLogMaintenance)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Maintenance / Repair Description</label>
               <textarea
@@ -454,7 +554,7 @@ export default function AssetsFleetPage() {
           title="Log Fleet Vehicle Delivery Trip"
           subtitle="Record kilometers, fuel expenses, and purpose"
         >
-          <form onSubmit={handleLogTrip} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleLogTrip)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Vehicle Registration #</label>
@@ -531,7 +631,125 @@ export default function AssetsFleetPage() {
             </div>
           </form>
         </Modal>
+        {/* Modal: Apply Depreciation */}
+        <Modal
+          isOpen={isDepreciationOpen}
+          onClose={() => setIsDepreciationOpen(false)}
+          title={`Asset Depreciation: ${depAsset?.assetName || ''}`}
+          subtitle={`Asset Code: ${depAsset?.assetCode || ''} • Current Book Value: Rs. ${(depAsset?.currentBookValuePKR ?? depAsset?.originalCostPKR ?? 0).toLocaleString()}`}
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleApplyDepreciation)} className="space-y-4">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between text-slate-700">
+                <span>Original Purchase Cost:</span>
+                <span className="font-bold">Rs. {Number(depAsset?.originalCostPKR || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-slate-700">
+                <span>Accumulated Depreciation:</span>
+                <span className="font-bold text-red-600">Rs. {Number(depAsset?.accumulatedDepreciationPKR || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-slate-900 border-t border-amber-200 pt-1 font-bold">
+                <span>Current Net Book Value:</span>
+                <span className="text-emerald-700">Rs. {Number(depAsset?.currentBookValuePKR ?? depAsset?.originalCostPKR ?? 0).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Depreciation Amount (PKR) *</label>
+              <input
+                type="number"
+                required
+                min="1"
+                max={depAsset?.currentBookValuePKR ?? depAsset?.originalCostPKR ?? 0}
+                value={depForm.amountPKR}
+                onChange={(e) => setDepForm({ ...depForm, amountPKR: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Depreciation Expense A/C</label>
+                <select
+                  value={depForm.expenseAccountCode}
+                  onChange={(e) => setDepForm({ ...depForm, expenseAccountCode: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">-- Optional Journal Account --</option>
+                  {financialAccounts
+                    .filter((a) => a.type === 'OperatingExpense')
+                    .map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.code} - {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Accum. Depreciation A/C</label>
+                <select
+                  value={depForm.accumulatedAccountCode}
+                  onChange={(e) => setDepForm({ ...depForm, accumulatedAccountCode: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  <option value="">-- Optional Journal Account --</option>
+                  {financialAccounts
+                    .filter((a) => a.type === 'Asset' || a.type === 'Liability')
+                    .map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.code} - {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Notes / Period Description</label>
+              <input
+                type="text"
+                value={depForm.notes}
+                onChange={(e) => setDepForm({ ...depForm, notes: e.target.value })}
+                placeholder="e.g. FY 2026 Q1 Depreciation"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsDepreciationOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm"
+              >
+                Post Depreciation
+              </button>
+            </div>
+          </form>
+        </Modal>
+
+        <RecordEditModal
+          isOpen={Boolean(editingAsset)}
+          onClose={() => setEditingAsset(null)}
+          record={editingAsset}
+          title={`Edit Asset: ${editingAsset?.assetCode || ''}`}
+          fields={ASSET_EDIT_FIELDS}
+          onSave={handleUpdateAsset}
+        />
       </div>
     </Layout>
   );
 }
+
+const ASSET_EDIT_FIELDS = [
+  { name: 'assetName', label: 'Equipment Name', required: true },
+  { name: 'category', label: 'Category', required: true },
+  { name: 'brandModel', label: 'Brand / Model' },
+  { name: 'locationFloor', label: 'Floor Location' },
+];

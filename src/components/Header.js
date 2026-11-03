@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -40,6 +40,25 @@ const navigation = [
   { name: 'Warehouse', href: '/warehouse' },
 ];
 
+const themeChangeEvent = 'erpdost-theme-change';
+
+function subscribeToTheme(callback) {
+  window.addEventListener('storage', callback);
+  window.addEventListener(themeChangeEvent, callback);
+  return () => {
+    window.removeEventListener('storage', callback);
+    window.removeEventListener(themeChangeEvent, callback);
+  };
+}
+
+function getThemeSnapshot() {
+  return localStorage.getItem('erpdost-theme') || 'light';
+}
+
+function getServerThemeSnapshot() {
+  return 'light';
+}
+
 export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsMobileOpen }) {
   const { user, logout, currentBranch, setCurrentBranch } = useAuth();
   const router = useRouter();
@@ -50,37 +69,21 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
-  const [theme, setTheme] = useState('light');
+  const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
 
   const searchRef = useRef(null);
   const mobileSearchRef = useRef(null);
   const profileRef = useRef(null);
   const unitRef = useRef(null);
 
-  // Initialize theme from localStorage or document
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('erpdost-theme') || 'light';
-      setTheme(savedTheme);
-      if (savedTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    }
-  }, []);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
 
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('erpdost-theme', nextTheme);
-      if (nextTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    }
+    localStorage.setItem('erpdost-theme', nextTheme);
+    window.dispatchEvent(new Event(themeChangeEvent));
   };
 
   const searchResults = useMemo(() => {
@@ -309,7 +312,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
               <div className="flex items-center gap-1.5 truncate">
                 <Store className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
-                  {currentBranch || 'Unit 1'}
+                {currentBranch || 'All branches'}
                 </span>
               </div>
               <ChevronDown
@@ -334,7 +337,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                       : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
-                  Unit 1
+                  All branches
                 </button>
                 {branches.map((b) => (
                   <button

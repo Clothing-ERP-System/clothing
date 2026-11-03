@@ -1,39 +1,50 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const router = useRouter();
-  const [user, setUser] = useState(null);
+  const [user, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState([]);
   const [currentBranch, setCurrentBranch] = useState('');
+  const sessionVersion = useRef(0);
+
+  const setUser = useCallback((nextUser) => {
+    sessionVersion.current += 1;
+    setUserState(nextUser);
+    setLoading(false);
+    if (nextUser) setCurrentBranch(nextUser.branch || '');
+  }, []);
 
   useEffect(() => {
+    let active = true;
+    const requestVersion = sessionVersion.current;
     async function loadUser() {
       try {
         const res = await fetch('/api/auth/me');
         if (res.ok) {
           const data = await res.json();
-          if (data?.data?.user) {
-            setUser(data.data.user);
-            setCurrentBranch(data.data.user.branch || '');
-          } else {
-            setUser(null);
+          if (active && requestVersion === sessionVersion.current) {
+            const sessionUser = data?.data?.user || null;
+            setUserState(sessionUser);
+            setCurrentBranch(sessionUser?.branch || '');
           }
-        } else {
-          setUser(null);
+        } else if (active && requestVersion === sessionVersion.current) {
+          setUserState(null);
         }
       } catch (err) {
         console.error('Session check failed:', err);
+        if (active && requestVersion === sessionVersion.current) setUserState(null);
       } finally {
-        setLoading(false);
+        if (active && requestVersion === sessionVersion.current) setLoading(false);
       }
     }
-    loadUser();
+    void loadUser();
+    return () => { active = false; };
   }, []);
 
   const addToast = (message, type = 'success') => {

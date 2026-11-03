@@ -1,12 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import { pool } from '@/lib/db.js';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { pool, runInTransaction } from '@/lib/db.js';
 import User from '@/models/User.js';
 import { hashPassword, generateToken, COOKIE_NAME } from '@/lib/auth.js';
 import { errorResponse, successResponse } from '@/lib/api-response.js';
 
 export async function GET() {
   try {
-    return successResponse({ setupRequired: (await User.countDocuments()) === 0 });
+    return successResponse({
+      setupRequired: (await User.countDocuments()) === 0,
+      setupAvailable: Boolean(process.env.INITIAL_SUPERADMIN_SETUP_TOKEN),
+    });
   } catch (error) {
     console.error('Workspace setup check failed:', error);
     return errorResponse('Unable to connect to the MySQL database. Check your database settings.', 503);
@@ -20,6 +23,18 @@ export async function POST(request) {
     const name = String(body.name || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
+    const setupToken = typeof body.setupToken === 'string' ? body.setupToken : '';
+    const configuredToken = process.env.INITIAL_SUPERADMIN_SETUP_TOKEN;
+
+    if (!configuredToken || configuredToken.length < 32) {
+      return errorResponse('Initial SuperAdmin setup is disabled. Configure INITIAL_SUPERADMIN_SETUP_TOKEN on the server.', 503);
+    }
+
+    const providedToken = Buffer.from(setupToken);
+    const expectedToken = Buffer.from(configuredToken);
+    if (providedToken.length !== expectedToken.length || !timingSafeEqual(providedToken, expectedToken)) {
+      return errorResponse('Invalid owner setup token', 403);
+    }
 
     if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 12) {
       return errorResponse('Enter your name, a valid email, and a password of at least 12 characters.', 400);
@@ -48,18 +63,19 @@ export async function POST(request) {
       permissions: ['ALL'],
     };
     const token = generateToken(payload);
-    const user = await User.create({
+    const hashedPassword = await hashPassword(password);
+    const user = await runInTransaction(() => User.create({
       _id: userId,
       name,
       email,
-      password: await hashPassword(password),
+      password: hashedPassword,
       role: 'SuperAdmin',
       branch: '',
       department: '',
       phone: '',
       permissions: ['ALL'],
       isActive: true,
-    });
+    }));
     payload.id = user._id;
     const response = successResponse({ user: payload }, 'Workspace administrator created');
     response.cookies.set({

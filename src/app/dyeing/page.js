@@ -3,7 +3,10 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Droplets,
   Plus,
@@ -17,13 +20,27 @@ import {
 } from 'lucide-react';
 
 export default function DyeingProcessingPage() {
-  const { addToast } = useAuth();
+  const { addToast, currentBranch } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('jobcards'); // 'jobcards', 'recipes'
+  const [outputMetersByJob, setOutputMetersByJob] = useState({});
+  const [outputFabricByJob, setOutputFabricByJob] = useState({});
+  const [editingRecipe, setEditingRecipe] = useState(null);
 
   // Modals
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
+  const [isNewRecipeOpen, setIsNewRecipeOpen] = useState(false);
+  const [newRecipe, setNewRecipe] = useState({
+    shadeName: '',
+    pantoneCode: '',
+    fabricCompatibility: '',
+    ingredients: [{ chemicalName: '', ratioGramsPerKg: '' }],
+    liquorRatio: '',
+    temperatureCelsius: '',
+    processTimeMinutes: '',
+    approvedBy: '',
+  });
   const [newJob, setNewJob] = useState({
     targetShade: '',
     recipeId: '',
@@ -64,7 +81,10 @@ export default function DyeingProcessingPage() {
         body: JSON.stringify({
           action: 'CREATE_JOB_CARD',
           ...newJob,
-          issuedRollNumbers: newJob.issuedRollNumbers.split(',').map((s) => s.trim()),
+          fabricAllocations: newJob.issuedRollNumbers.split(',').map((entry) => {
+            const [rollNumber, meters] = entry.split(':');
+            return { rollNumber: rollNumber?.trim(), meters: Number(meters) };
+          }),
         }),
       });
       const json = await res.json();
@@ -80,7 +100,38 @@ export default function DyeingProcessingPage() {
     }
   };
 
-  const handleUpdateJobStatus = async (jobCardId, status, labDipApproved, outputMeters) => {
+  const handleCreateRecipe = async (event) => {
+    event.preventDefault();
+    try {
+      const response = await fetch('/api/dyeing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'CREATE_RECIPE', ...newRecipe }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Recipe creation failed', 'error');
+        return;
+      }
+      addToast(`Dye recipe ${result.data.recipe.recipeCode} created`, 'success');
+      setIsNewRecipeOpen(false);
+      setNewRecipe({
+        shadeName: '',
+        pantoneCode: '',
+        fabricCompatibility: '',
+        ingredients: [{ chemicalName: '', ratioGramsPerKg: '' }],
+        liquorRatio: '',
+        temperatureCelsius: '',
+        processTimeMinutes: '',
+        approvedBy: '',
+      });
+      await fetchData();
+    } catch {
+      addToast('Error creating dye recipe', 'error');
+    }
+  };
+
+  const handleUpdateJobStatus = async (jobCardId, status, labDipApproved, outputMeters, outputFabricId) => {
     try {
       const res = await fetch('/api/dyeing', {
         method: 'POST',
@@ -91,6 +142,8 @@ export default function DyeingProcessingPage() {
           status,
           labDipApproved,
           outputMeters,
+          outputFabricId,
+          outputWarehouseLocation: currentBranch,
         }),
       });
       const json = await res.json();
@@ -102,6 +155,28 @@ export default function DyeingProcessingPage() {
       fetchData();
     } catch {
       addToast('Error updating status', 'error');
+    }
+  };
+
+  const handleUpdateRecipe = async (recipeId, updates) => {
+    try {
+      const response = await fetch('/api/dyeing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_RECIPE', recipeId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Recipe update failed', 'error');
+        return false;
+      }
+      addToast('Dye recipe updated successfully', 'success');
+      setEditingRecipe(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating dye recipe', 'error');
+      return false;
     }
   };
 
@@ -128,13 +203,28 @@ export default function DyeingProcessingPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => setIsNewJobOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Create Dye Job Card</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {activeTab === 'recipes' && (
+              <button
+                type="button"
+                onClick={() => setIsNewRecipeOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Recipe</span>
+              </button>
+            )}
+            {activeTab === 'jobcards' && (
+              <button
+                type="button"
+                onClick={() => setIsNewJobOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create Dye Job Card</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
@@ -222,13 +312,49 @@ export default function DyeingProcessingPage() {
                       </button>
                     )}
 
-                    {job.status !== 'Completed' && (
-                      <button
-                        onClick={() => handleUpdateJobStatus(job._id, 'Completed', true, Math.round(job.inputMeters * 0.97))}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
-                      >
-                        Mark Completed
-                      </button>
+                    {job.status !== 'Completed' && job.labDipApproved && (
+                      <>
+                        <input
+                          type="number"
+                          min="0.01"
+                          max={job.inputMeters}
+                          step="0.01"
+                          placeholder="Actual output m"
+                          value={outputMetersByJob[job._id] || ''}
+                          onChange={(e) => setOutputMetersByJob({
+                            ...outputMetersByJob,
+                            [job._id]: e.target.value,
+                          })}
+                          className="w-28 px-2 py-1.5 text-xs border border-slate-200 rounded-lg"
+                        />
+                        <select
+                          required
+                          value={outputFabricByJob[job._id] || ''}
+                          onChange={(event) => setOutputFabricByJob({
+                            ...outputFabricByJob,
+                            [job._id]: event.target.value,
+                          })}
+                          className="max-w-40 px-2 py-1.5 text-xs border border-slate-200 rounded-lg"
+                          aria-label="Output fabric stock item"
+                        >
+                          <option value="">Output fabric</option>
+                          {(data?.fabricItems || []).map((fabric) => (
+                            <option key={fabric.id} value={fabric.id}>{fabric.code} · {fabric.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleUpdateJobStatus(
+                            job._id,
+                            'Completed',
+                            undefined,
+                            Number(outputMetersByJob[job._id]),
+                            outputFabricByJob[job._id]
+                          )}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                        >
+                          Mark Completed
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -279,6 +405,24 @@ export default function DyeingProcessingPage() {
                     <span className="font-bold">{rcp.processTimeMinutes} mins</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingRecipe(rcp)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Edit Recipe Details
+                </button>
+                {!jobCards.some((job) => String(job.recipeId?._id || job.recipeId || '') === String(rcp._id)) && (
+                  <RecordDeleteButton
+                    endpoint="/api/dyeing"
+                    action="DELETE_RECIPE"
+                    idField="recipeId"
+                    recordId={rcp._id}
+                    recordLabel={`dye recipe ${rcp.recipeCode}`}
+                    onDeleted={fetchData}
+                    className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -286,12 +430,101 @@ export default function DyeingProcessingPage() {
 
         {/* Modal: Create Dye Job Card */}
         <Modal
+          isOpen={isNewRecipeOpen}
+          onClose={() => setIsNewRecipeOpen(false)}
+          title="Create Dye Recipe"
+          subtitle="Define shade, fabric compatibility, and chemical ratios"
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateRecipe)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-bold text-slate-700">
+                Shade Name
+                <input required value={newRecipe.shadeName} onChange={(event) => setNewRecipe({ ...newRecipe, shadeName: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Pantone Code
+                <input value={newRecipe.pantoneCode} onChange={(event) => setNewRecipe({ ...newRecipe, pantoneCode: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Fabric Compatibility
+                <input value={newRecipe.fabricCompatibility} onChange={(event) => setNewRecipe({ ...newRecipe, fabricCompatibility: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Liquor Ratio
+                <input value={newRecipe.liquorRatio} onChange={(event) => setNewRecipe({ ...newRecipe, liquorRatio: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-bold text-slate-700">
+                Temperature (°C)
+                <input type="number" min="0" step="any" value={newRecipe.temperatureCelsius} onChange={(event) => setNewRecipe({ ...newRecipe, temperatureCelsius: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Process Time (minutes)
+                <input type="number" min="0" step="any" value={newRecipe.processTimeMinutes} onChange={(event) => setNewRecipe({ ...newRecipe, processTimeMinutes: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+              </label>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">Chemical Ingredients</span>
+                <button
+                  type="button"
+                  onClick={() => setNewRecipe((current) => ({
+                    ...current,
+                    ingredients: [...current.ingredients, { chemicalName: '', ratioGramsPerKg: '' }],
+                  }))}
+                  className="text-xs font-bold text-indigo-700 hover:text-indigo-800"
+                >
+                  Add Ingredient
+                </button>
+              </div>
+              {newRecipe.ingredients.map((ingredient, index) => (
+                <div key={index} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                  <label className="block text-[11px] font-bold text-slate-600">
+                    Chemical
+                    <input required value={ingredient.chemicalName} onChange={(event) => setNewRecipe((current) => ({
+                      ...current,
+                      ingredients: current.ingredients.map((item, itemIndex) => itemIndex === index ? { ...item, chemicalName: event.target.value } : item),
+                    }))} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+                  </label>
+                  <label className="block text-[11px] font-bold text-slate-600">
+                    Ratio (g/kg)
+                    <input required type="number" min="0.000001" step="any" value={ingredient.ratioGramsPerKg} onChange={(event) => setNewRecipe((current) => ({
+                      ...current,
+                      ingredients: current.ingredients.map((item, itemIndex) => itemIndex === index ? { ...item, ratioGramsPerKg: event.target.value } : item),
+                    }))} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={newRecipe.ingredients.length === 1}
+                    onClick={() => setNewRecipe((current) => ({
+                      ...current,
+                      ingredients: current.ingredients.filter((_, itemIndex) => itemIndex !== index),
+                    }))}
+                    className="pb-2 text-xs font-bold text-red-600 disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            <label className="block text-xs font-bold text-slate-700">
+              Approved By
+              <input value={newRecipe.approvedBy} onChange={(event) => setNewRecipe({ ...newRecipe, approvedBy: event.target.value })} className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg" />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setIsNewRecipeOpen(false)} className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button type="submit" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-xs font-bold text-white hover:bg-[#4338CA]">Save Recipe</button>
+            </div>
+          </form>
+        </Modal>
+        <Modal
           isOpen={isNewJobOpen}
           onClose={() => setIsNewJobOpen(false)}
           title="Create Dye Job Card"
           subtitle="Issue greige fabric rolls to dyeing jet and set shade formulation"
         >
-          <form onSubmit={handleCreateJob} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateJob)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Target Shade & Recipe</label>
               <select
@@ -339,13 +572,13 @@ export default function DyeingProcessingPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Issued Roll Number(s)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Roll allocations (roll number: meters)</label>
                 <input
                   type="text"
                   required
                   value={newJob.issuedRollNumbers}
                   onChange={(e) => setNewJob({ ...newJob, issuedRollNumbers: e.target.value })}
-                  placeholder="Roll numbers"
+                  placeholder="e.g. ROL-2025-00001:50, ROL-2025-00002:40"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 />
               </div>
@@ -378,7 +611,35 @@ export default function DyeingProcessingPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingRecipe)}
+          onClose={() => setEditingRecipe(null)}
+          record={editingRecipe}
+          title={`Edit Recipe: ${editingRecipe?.recipeCode || ''}`}
+          fields={DYE_RECIPE_EDIT_FIELDS}
+          onSave={handleUpdateRecipe}
+        />
       </div>
     </Layout>
   );
 }
+
+const DYE_RECIPE_EDIT_FIELDS = [
+  { name: 'shadeName', label: 'Shade Name', required: true },
+  { name: 'pantoneCode', label: 'Pantone Code' },
+  { name: 'fabricCompatibility', label: 'Fabric Compatibility' },
+  { name: 'liquorRatio', label: 'Liquor Ratio' },
+  { name: 'temperatureCelsius', label: 'Temperature (°C)', type: 'number', min: 0, step: 'any' },
+  { name: 'processTimeMinutes', label: 'Process Time (Minutes)', type: 'number', min: 0, step: 'any' },
+  { name: 'approvedBy', label: 'Approved By' },
+  {
+    name: 'ingredients',
+    label: 'Chemical Ingredients',
+    type: 'array',
+    itemLabel: 'ingredient',
+    itemFields: [
+      { name: 'chemicalName', label: 'Chemical', required: true },
+      { name: 'ratioGramsPerKg', label: 'Ratio (g/kg)', type: 'number', required: true, min: 0, step: 'any' },
+    ],
+  },
+];

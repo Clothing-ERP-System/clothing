@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Megaphone,
   Plus,
@@ -21,8 +24,17 @@ export default function MarketingCRMPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
+  const [isAddCampaignOpen, setIsAddCampaignOpen] = useState(false);
   const [isUpdateStageOpen, setIsUpdateStageOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
+  const [editingLead, setEditingLead] = useState(null);
+  const [editingCampaign, setEditingCampaign] = useState(null);
+  const [newCampaign, setNewCampaign] = useState({
+    campaignTitle: '',
+    seasonOrTheme: '',
+    targetAudience: '',
+    budgetPKR: '',
+  });
 
   // New Lead Form
   const [newLead, setNewLead] = useState({
@@ -79,6 +91,72 @@ export default function MarketingCRMPage() {
       fetchData();
     } catch {
       addToast('Error saving lead', 'error');
+    }
+  };
+
+  const handleCreateCampaign = async (event) => {
+    event.preventDefault();
+    try {
+      const response = await fetch('/api/crm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'CREATE_CAMPAIGN', ...newCampaign }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Campaign creation failed', 'error');
+        return;
+      }
+      addToast('Marketing campaign created', 'success');
+      setIsAddCampaignOpen(false);
+      setNewCampaign({ campaignTitle: '', seasonOrTheme: '', targetAudience: '', budgetPKR: '' });
+      await fetchData();
+    } catch {
+      addToast('Error creating campaign', 'error');
+    }
+  };
+
+  const handleUpdateLead = async (leadId, updates) => {
+    try {
+      const response = await fetch('/api/crm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_LEAD', leadId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Lead update failed', 'error');
+        return false;
+      }
+      addToast('Lead updated successfully', 'success');
+      setEditingLead(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating lead', 'error');
+      return false;
+    }
+  };
+
+  const handleUpdateCampaign = async (campaignId, updates) => {
+    try {
+      const response = await fetch('/api/crm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_CAMPAIGN', campaignId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Campaign update failed', 'error');
+        return false;
+      }
+      addToast('Campaign updated successfully', 'success');
+      setEditingCampaign(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating campaign', 'error');
+      return false;
     }
   };
 
@@ -141,13 +219,22 @@ export default function MarketingCRMPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => setIsAddLeadOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Buyer Inquiry</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setIsAddCampaignOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Campaign</span>
+            </button>
+            <button
+              onClick={() => setIsAddLeadOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Buyer Inquiry</span>
+            </button>
+          </div>
         </div>
 
         {/* Marketing Campaigns Overview */}
@@ -179,6 +266,22 @@ export default function MarketingCRMPage() {
                   <span className="font-bold text-emerald-600">Rs. {camp.revenueGeneratedPKR?.toLocaleString()}</span>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setEditingCampaign(camp)}
+                className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Edit Campaign
+              </button>
+              <RecordDeleteButton
+                endpoint="/api/crm"
+                action="DELETE_CAMPAIGN"
+                idField="campaignId"
+                recordId={camp._id}
+                recordLabel={`campaign ${camp.campaignTitle}`}
+                onDeleted={fetchData}
+                className="w-full rounded-lg border border-red-200 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+              />
             </div>
           ))}
         </div>
@@ -229,6 +332,24 @@ export default function MarketingCRMPage() {
                       <td className="py-3 px-4 text-slate-600 max-w-xs truncate">{l.lastDiscussionSummary}</td>
                       <td className="py-3 px-4 text-right">
                         <button
+                          type="button"
+                          onClick={() => setEditingLead(l)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        {l.stage !== 'WonOrder' && (
+                          <RecordDeleteButton
+                            endpoint="/api/crm"
+                            action="DELETE_LEAD"
+                            idField="leadId"
+                            recordId={l._id}
+                            recordLabel={`lead ${l.leadCode}`}
+                            onDeleted={fetchData}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                          />
+                        )}
+                        <button
                           onClick={() => openStageModal(l)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
                         >
@@ -246,12 +367,66 @@ export default function MarketingCRMPage() {
 
         {/* Modal: Add Lead */}
         <Modal
+          isOpen={isAddCampaignOpen}
+          onClose={() => setIsAddCampaignOpen(false)}
+          title="Create Marketing Campaign"
+          subtitle="Record campaign theme, audience, and approved budget"
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateCampaign)} className="space-y-4">
+            <label className="block text-xs font-bold text-slate-700">
+              Campaign Title
+              <input
+                type="text"
+                required
+                value={newCampaign.campaignTitle}
+                onChange={(event) => setNewCampaign({ ...newCampaign, campaignTitle: event.target.value })}
+                className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs font-bold text-slate-700">
+                Season / Theme
+                <input
+                  type="text"
+                  value={newCampaign.seasonOrTheme}
+                  onChange={(event) => setNewCampaign({ ...newCampaign, seasonOrTheme: event.target.value })}
+                  className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg"
+                />
+              </label>
+              <label className="block text-xs font-bold text-slate-700">
+                Target Audience
+                <input
+                  type="text"
+                  value={newCampaign.targetAudience}
+                  onChange={(event) => setNewCampaign({ ...newCampaign, targetAudience: event.target.value })}
+                  className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg"
+                />
+              </label>
+            </div>
+            <label className="block text-xs font-bold text-slate-700">
+              Budget (PKR)
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={newCampaign.budgetPKR}
+                onChange={(event) => setNewCampaign({ ...newCampaign, budgetPKR: event.target.value })}
+                className="mt-1 w-full px-3 py-2 font-normal border border-slate-200 rounded-lg"
+              />
+            </label>
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setIsAddCampaignOpen(false)} className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button type="submit" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-xs font-bold text-white hover:bg-[#4338CA]">Save Campaign</button>
+            </div>
+          </form>
+        </Modal>
+        <Modal
           isOpen={isAddLeadOpen}
           onClose={() => setIsAddLeadOpen(false)}
           title="Record Buyer Inquiry"
           subtitle="Log prospective wholesale buyer or boutique inquiry"
         >
-          <form onSubmit={handleCreateLead} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateLead)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Contact Person</label>
@@ -334,7 +509,7 @@ export default function MarketingCRMPage() {
           title={`Update Pipeline: ${selectedLead?.contactPerson}`}
           subtitle={`Current Stage: ${selectedLead?.stage}`}
         >
-          <form onSubmit={handleUpdateStage} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleUpdateStage)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Next Pipeline Stage</label>
               <select
@@ -378,7 +553,43 @@ export default function MarketingCRMPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingLead)}
+          onClose={() => setEditingLead(null)}
+          record={editingLead}
+          title={`Edit Lead: ${editingLead?.leadCode || ''}`}
+          fields={CRM_LEAD_EDIT_FIELDS}
+          onSave={handleUpdateLead}
+        />
+        <RecordEditModal
+          isOpen={Boolean(editingCampaign)}
+          onClose={() => setEditingCampaign(null)}
+          record={editingCampaign}
+          title={`Edit Campaign: ${editingCampaign?.campaignTitle || ''}`}
+          fields={CRM_CAMPAIGN_EDIT_FIELDS}
+          onSave={handleUpdateCampaign}
+        />
       </div>
     </Layout>
   );
 }
+
+const CRM_LEAD_EDIT_FIELDS = [
+  { name: 'contactPerson', label: 'Contact Person', required: true },
+  { name: 'companyName', label: 'Company / Brand' },
+  { name: 'phone', label: 'Phone', required: true },
+  { name: 'email', label: 'Email', type: 'email' },
+  { name: 'channel', label: 'Lead Channel' },
+  { name: 'stage', label: 'Pipeline Stage', type: 'select', required: true, options: ['NewLead', 'Contacted', 'SampleSent', 'PriceNegotiation', 'WonOrder', 'Lost'] },
+  { name: 'estimatedOrderValuePKR', label: 'Estimated Order Value (PKR)', type: 'number', required: true, min: 0, step: 'any' },
+  { name: 'assignedSalesOfficer', label: 'Assigned Sales Officer' },
+  { name: 'nextFollowUpDate', label: 'Next Follow-up', type: 'date' },
+  { name: 'lastDiscussionSummary', label: 'Discussion Summary', type: 'textarea' },
+];
+
+const CRM_CAMPAIGN_EDIT_FIELDS = [
+  { name: 'campaignTitle', label: 'Campaign Title', required: true },
+  { name: 'seasonOrTheme', label: 'Season / Theme' },
+  { name: 'targetAudience', label: 'Target Audience' },
+  { name: 'budgetPKR', label: 'Budget (PKR)', type: 'number', required: true, min: 0, step: 'any' },
+];

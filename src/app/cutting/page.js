@@ -4,6 +4,7 @@ import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   Scissors,
   Plus,
@@ -317,7 +318,7 @@ export default function CuttingDepartmentPage() {
           title="Create Cutting Order & Bundle Tickets"
           subtitle="Select article, allocate fabric rolls, and specify marker layout"
         >
-          <form onSubmit={handleCreateOrder} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateOrder)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Production Article</label>
               <select

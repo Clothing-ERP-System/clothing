@@ -3,7 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
+import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
   DollarSign,
   Plus,
@@ -18,15 +21,21 @@ import {
   Trash2,
 } from 'lucide-react';
 
+const accountTypes = ['Asset', 'Liability', 'Equity', 'Revenue', 'CostOfGoodsSold', 'OperatingExpense'];
+
 export default function FinanceAccountsPage() {
   const { addToast } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [activeTab, setActiveTab] = useState('summary'); // 'summary', 'accounts', 'journals', 'expenses'
 
   // Modals
   const [isNewJVOpen, setIsNewJVOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
+  const [isNewAccountOpen, setIsNewAccountOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [newAccount, setNewAccount] = useState({ code: '', name: '', type: 'Asset', balance: '' });
 
   // New Journal Voucher Form
   const [newJV, setNewJV] = useState({
@@ -45,6 +54,7 @@ export default function FinanceAccountsPage() {
     category: '',
     amount: '',
     paidFromAccount: '',
+    expenseAccountCode: '',
     paidTo: '',
     approvedBy: '',
   });
@@ -53,11 +63,15 @@ export default function FinanceAccountsPage() {
     try {
       const res = await fetch('/api/finance');
       const json = await res.json();
-      if (json.success) {
-        setData(json.data);
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || 'Unable to load finance data');
       }
-    } catch (err) {
-      console.error('Error fetching finance:', err);
+      setData(json.data);
+      setLoadError('');
+    } catch (error) {
+      console.error('Error fetching finance:', error);
+      setData(null);
+      setLoadError(error.message || 'Unable to load finance data');
     } finally {
       setLoading(false);
     }
@@ -109,20 +123,91 @@ export default function FinanceAccountsPage() {
     }
   };
 
-  const summary = data?.summary || {
-    totalAssets: 9450000,
-    totalLiabilities: 1337000,
-    totalEquity: 8113000,
-    totalRevenue: 3450000,
-    totalCogs: 2000000,
-    totalExpenses: 339500,
-    grossProfit: 1450000,
-    netProfit: 1110500,
+  const handleCreateAccount = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('/api/finance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'CREATE_ACCOUNT', ...newAccount }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Failed to create account', 'error');
+        return;
+      }
+      addToast(`Account ${result.data.account.code} created`, 'success');
+      setIsNewAccountOpen(false);
+      setNewAccount({ code: '', name: '', type: 'Asset', balance: '' });
+      fetchData();
+    } catch {
+      addToast('Error creating account', 'error');
+    }
   };
+
+  const handleUpdateAccount = async (accountId, updates) => {
+    try {
+      const response = await fetch('/api/finance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_ACCOUNT', accountId, ...updates }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Account update failed', 'error');
+        return false;
+      }
+      addToast('Account updated successfully', 'success');
+      setEditingAccount(null);
+      await fetchData();
+      return true;
+    } catch {
+      addToast('Error updating account', 'error');
+      return false;
+    }
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <p className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500" role="status">
+          Loading finance data…
+        </p>
+      </Layout>
+    );
+  }
+
+  if (loadError || !data) {
+    return (
+      <Layout>
+        <div className="rounded-xl border border-rose-200 bg-white p-5 text-sm text-rose-800" role="alert">
+          <p className="font-semibold">Finance data is unavailable.</p>
+          <p className="mt-1">{loadError || 'No finance response was received.'}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void fetchData();
+            }}
+            className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+          >
+            Retry
+          </button>
+        </div>
+      </Layout>
+    );
+  }
+
+  const summary = data.summary;
 
   const accounts = data?.accounts || [];
   const journalEntries = data?.journalEntries || [];
   const expenses = data?.expenses || [];
+  const isAccountReferenced = (account) =>
+    journalEntries.some((entry) => (entry.lines || []).some((line) => line.accountCode === account.code)) ||
+    expenses.some((expense) =>
+      expense.paidFromAccount === account.code || expense.expenseAccountCode === account.code
+    );
 
   return (
     <Layout>
@@ -187,7 +272,7 @@ export default function FinanceAccountsPage() {
               Rs. {summary.grossProfit?.toLocaleString()}
             </div>
             <div className="text-[11px] text-emerald-600 font-semibold mt-1">
-              Margin: {summary.totalRevenue > 0 ? Math.round((summary.grossProfit / summary.totalRevenue) * 100) : 42}%
+              Margin: {summary.totalRevenue > 0 ? Math.round((summary.grossProfit / summary.totalRevenue) * 100) : 0}%
             </div>
           </div>
 
@@ -307,8 +392,16 @@ export default function FinanceAccountsPage() {
         {/* Tab 2: Chart of Accounts */}
         {activeTab === 'accounts' && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-slate-100">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-slate-900">Chart of Accounts (General Ledger Master)</h3>
+              <button
+                type="button"
+                onClick={() => setIsNewAccountOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Account
+              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -319,6 +412,7 @@ export default function FinanceAccountsPage() {
                     <th className="py-3 px-4">Account Title</th>
                     <th className="py-3 px-4">Account Type</th>
                     <th className="py-3 px-4 text-right">Current Balance</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -333,6 +427,28 @@ export default function FinanceAccountsPage() {
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-900 text-right">
                         Rs. {acc.balance?.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingAccount(acc)}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            Edit
+                          </button>
+                          {!isAccountReferenced(acc) && (
+                            <RecordDeleteButton
+                              endpoint="/api/finance"
+                              action="DELETE_ACCOUNT"
+                              idField="accountId"
+                              recordId={acc._id}
+                              recordLabel={`account ${acc.code}`}
+                              onDeleted={fetchData}
+                              className="rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-bold text-red-700 hover:bg-red-50"
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -435,7 +551,7 @@ export default function FinanceAccountsPage() {
           subtitle="Enforces balanced double-entry (Debit = Credit)"
           maxWidth="max-w-2xl"
         >
-          <form onSubmit={handleCreateJV} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateJV)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Narration / Description</label>
               <input
@@ -454,17 +570,28 @@ export default function FinanceAccountsPage() {
                 <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-12 gap-2 text-xs items-center">
                   <div className="col-span-6">
                     <label className="text-[10px] text-slate-500 block mb-0.5">Account Code & Title</label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      value={`${l.accountCode} - ${l.accountName}`}
+                      value={l.accountCode}
                       onChange={(e) => {
                         const updated = [...newJV.lines];
-                        updated[idx].accountName = e.target.value;
+                        const selectedAccount = accounts.find((account) => account.code === e.target.value);
+                        updated[idx] = {
+                          ...updated[idx],
+                          accountCode: selectedAccount?.code || '',
+                          accountName: selectedAccount?.name || '',
+                        };
                         setNewJV({ ...newJV, lines: updated });
                       }}
                       className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded focus:outline-none"
-                    />
+                    >
+                      <option value="">Select an account</option>
+                      {accounts.map((account) => (
+                        <option key={account._id} value={account.code}>
+                          {account.code} - {account.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="col-span-3">
@@ -516,14 +643,84 @@ export default function FinanceAccountsPage() {
           </form>
         </Modal>
 
-        {/* Modal: Log Factory Expense */}
+        {/* Modal: Add Chart of Accounts Entry */}
+        <Modal
+          isOpen={isNewAccountOpen}
+          onClose={() => setIsNewAccountOpen(false)}
+          title="Add Chart of Accounts Entry"
+          subtitle="Create a MySQL-backed ledger account"
+          maxWidth="max-w-xl"
+        >
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateAccount)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Account Code</label>
+                <input
+                  type="text"
+                  required
+                  value={newAccount.code}
+                  onChange={(e) => setNewAccount({ ...newAccount, code: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Account Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newAccount.name}
+                  onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Account Type</label>
+                <select
+                  value={newAccount.type}
+                  onChange={(e) => setNewAccount({ ...newAccount, type: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                >
+                  {accountTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Opening Balance (PKR)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newAccount.balance}
+                  onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsNewAccountOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm"
+              >
+                Save Account
+              </button>
+            </div>
+          </form>
+        </Modal>
+
         <Modal
           isOpen={isNewExpenseOpen}
           onClose={() => setIsNewExpenseOpen(false)}
           title="Record Factory Operating Expense"
           subtitle="Utility, boiler fuel, machine spare parts, or worker tea"
         >
-          <form onSubmit={handleCreateExpense} className="space-y-4">
+          <form onSubmit={(event) => preventDuplicateSubmit(event, handleCreateExpense)} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Expense Description</label>
               <input
@@ -540,10 +737,12 @@ export default function FinanceAccountsPage() {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
                 <select
+                  required
                   value={newExpense.category}
                   onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 >
+                  <option value="">Select a category</option>
                   <option value="Factory Electricity & Diesel">Factory Electricity & Diesel</option>
                   <option value="Boiler Fuel">Boiler Fuel</option>
                   <option value="Machine Maintenance">Machine Maintenance</option>
@@ -564,6 +763,23 @@ export default function FinanceAccountsPage() {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Expense Account</label>
+              <select
+                required
+                value={newExpense.expenseAccountCode}
+                onChange={(e) => setNewExpense({ ...newExpense, expenseAccountCode: e.target.value })}
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+              >
+                <option value="">Select an operating-expense account</option>
+                {accounts.filter((account) => account.type === 'OperatingExpense').map((account) => (
+                  <option key={account._id} value={account.code}>
+                    {account.name} ({account.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Paid To (Vendor/Person)</label>
@@ -580,12 +796,17 @@ export default function FinanceAccountsPage() {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Paid From Account</label>
                 <select
+                  required
                   value={newExpense.paidFromAccount}
                   onChange={(e) => setNewExpense({ ...newExpense, paidFromAccount: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 >
-                  <option value="Cash in Hand (Petty Cash & POS)">Cash in Hand (Petty Cash & POS)</option>
-                  <option value="Meezan Bank - Factory Current A/c">Meezan Bank - Factory Current A/c</option>
+                  <option value="">Select an asset account</option>
+                  {accounts.filter((account) => account.type === 'Asset').map((account) => (
+                    <option key={account._id} value={account.code}>
+                      {account.name} ({account.code})
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -607,7 +828,20 @@ export default function FinanceAccountsPage() {
             </div>
           </form>
         </Modal>
+        <RecordEditModal
+          isOpen={Boolean(editingAccount)}
+          onClose={() => setEditingAccount(null)}
+          record={editingAccount}
+          title={`Edit Account: ${editingAccount?.code || ''}`}
+          fields={ACCOUNT_EDIT_FIELDS}
+          onSave={handleUpdateAccount}
+        />
       </div>
     </Layout>
   );
 }
+
+const ACCOUNT_EDIT_FIELDS = [
+  { name: 'name', label: 'Account Name', required: true },
+  { name: 'type', label: 'Account Type', type: 'select', required: true, options: accountTypes },
+];

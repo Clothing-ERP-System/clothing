@@ -19,6 +19,7 @@
 
 # production
 /build
+/.private-data/
 
 # misc
 .DS_Store
@@ -30,8 +31,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (keep the example template)
 .env*
+!.env.example
 
 # vercel
 .vercel

@@ -3,6 +3,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
@@ -214,15 +215,29 @@ export default function CuttingDepartmentPage() {
                     </p>
                   </div>
 
-                  {selectedOrder.status !== 'TransferredToStitching' && (
-                    <button
-                      onClick={() => handleHandover(selectedOrder._id)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm"
-                    >
-                      <Shirt className="w-4 h-4" />
-                      <span>Handover to Stitching</span>
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedOrder.status !== 'TransferredToStitching' && (
+                      <button
+                        onClick={() => handleHandover(selectedOrder._id)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                      >
+                        <Shirt className="w-4 h-4" />
+                        <span>Handover to Stitching</span>
+                      </button>
+                    )}
+                    <RecordDeleteButton
+                      endpoint="/api/cutting"
+                      action="DELETE_ORDER"
+                      idField="orderId"
+                      recordId={selectedOrder._id}
+                      recordLabel={selectedOrder.orderNumber}
+                      onDeleted={() => {
+                        setSelectedOrder(null);
+                        fetchData();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer"
+                    />
+                  </div>
                 </div>
 
                 {/* Lay & Consumption Metrics */}

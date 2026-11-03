@@ -4,6 +4,7 @@ import React, { useCallback, useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import RecordAttachments from '@/components/RecordAttachments';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
@@ -235,13 +236,34 @@ export default function DesignBOMPage() {
                     <span className="text-xl font-black text-slate-900">Rs. {selectedDesign.suggestedRetailPrice?.toLocaleString()}</span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAttachmentDesign(selectedDesign)}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                >
-                  Manage Design Documents
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAttachmentDesign(selectedDesign)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    Manage Design Documents
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingDesign(selectedDesign)}
+                    className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer"
+                  >
+                    Edit Design & BOM
+                  </button>
+                  <RecordDeleteButton
+                    endpoint="/api/design"
+                    action="DELETE_DESIGN"
+                    idField="designId"
+                    recordId={selectedDesign._id}
+                    recordLabel={selectedDesign.title}
+                    onDeleted={() => {
+                      setSelectedDesign(null);
+                      fetchDesigns();
+                    }}
+                    className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  />
+                </div>
 
                 {/* Cost Breakdown Summary */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">

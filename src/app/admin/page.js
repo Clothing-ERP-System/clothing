@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import { BUILT_IN_ROLES, ERP_MODULES, ROLE_ACTIONS } from '@/lib/role-definitions.js';
@@ -484,11 +485,11 @@ export default function AdministrationPage() {
                           <span>{u.isActive ? 'Active' : 'Inactive'}</span>
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right space-x-2">
+                      <td className="py-3 px-4 text-right space-x-1.5">
                         <button
                           type="button"
                           onClick={() => setEditingUser(u)}
-                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
                         >
                           Edit
                         </button>
@@ -498,10 +499,19 @@ export default function AdministrationPage() {
                             setResetPasswordUser(u);
                             setNewPassword('');
                           }}
-                          className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100"
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100 cursor-pointer"
                         >
                           Password
                         </button>
+                        <RecordDeleteButton
+                          endpoint="/api/administration"
+                          action="DELETE_USER"
+                          idField="userId"
+                          recordId={u._id}
+                          recordLabel={u.name}
+                          onDeleted={fetchAdminData}
+                          className="rounded-lg border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer"
+                        />
                       </td>
                     </tr>
                   ))}

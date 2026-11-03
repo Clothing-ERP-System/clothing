@@ -21,6 +21,7 @@ async function getFabric(request) {
       (f.rolls || []).forEach(r => {
         allRolls.push({
           ...r,
+          fabricId: f._id,
           fabricName: f.name,
           fabricCode: f.fabricCode,
           fabricType: f.fabricType,

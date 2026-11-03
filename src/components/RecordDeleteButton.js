@@ -10,6 +10,7 @@ export default function RecordDeleteButton({
   recordId,
   recordLabel,
   onDeleted,
+  extraBody = {},
   className = '',
 }) {
   const { addToast } = useAuth();
@@ -22,7 +23,7 @@ export default function RecordDeleteButton({
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, [idField]: recordId }),
+        body: JSON.stringify({ action, [idField]: recordId, ...extraBody }),
       });
       const result = await response.json();
       if (!response.ok) {

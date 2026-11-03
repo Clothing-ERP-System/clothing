@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
@@ -381,14 +382,26 @@ export default function FabricInventoryPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          {r.remainingMeters > 0 && (
-                            <button
-                              onClick={() => openIssueModal(r)}
-                              className="px-2.5 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                            >
-                              Issue Material
-                            </button>
-                          )}
+                          <div className="flex items-center justify-end gap-1.5">
+                            {r.remainingMeters > 0 && (
+                              <button
+                                onClick={() => openIssueModal(r)}
+                                className="px-2.5 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                              >
+                                Issue Material
+                              </button>
+                            )}
+                            <RecordDeleteButton
+                              endpoint="/api/fabric"
+                              action="DELETE_ROLL"
+                              idField="rollNumber"
+                              recordId={r.rollNumber}
+                              recordLabel={`Roll ${r.rollNumber}`}
+                              extraBody={{ fabricId: r.fabricId }}
+                              onDeleted={fetchData}
+                              className="px-2 py-1 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            />
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -434,13 +447,24 @@ export default function FabricInventoryPage() {
                       <p>Weave: {f.weave} • Width: {f.widthInches}&quot;</p>
                       <p className="font-semibold text-slate-700">Available: {f.totalAvailableMeters || 0} Meters</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setEditingFabric(f)}
-                      className="mt-3 w-full rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
-                    >
-                      Edit Fabric Details
-                    </button>
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingFabric(f)}
+                        className="flex-1 rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer"
+                      >
+                        Edit Details
+                      </button>
+                      <RecordDeleteButton
+                        endpoint="/api/fabric"
+                        action="DELETE_FABRIC"
+                        idField="fabricId"
+                        recordId={f._id}
+                        recordLabel={f.name}
+                        onDeleted={fetchData}
+                        className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>

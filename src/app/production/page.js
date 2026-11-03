@@ -4,6 +4,7 @@ import React, { useCallback, useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
+import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import {
@@ -377,10 +378,22 @@ export default function ProductionStitchingPage() {
                     <button
                       type="button"
                       onClick={() => setEditingProductionOrder(selectedOrder)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-colors"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
                     >
                       Edit Schedule
                     </button>
+                    <RecordDeleteButton
+                      endpoint="/api/production"
+                      action="DELETE_ORDER"
+                      idField="orderId"
+                      recordId={selectedOrder._id}
+                      recordLabel={selectedOrder.productionOrderNumber}
+                      onDeleted={() => {
+                        setSelectedOrder(null);
+                        fetchData();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer"
+                    />
                     {selectedOrder.status === 'FinishingStage' && !selectedOrder.finishingCompletedAt && (
                       <button
                         onClick={() => setIsFinishingOpen(true)}

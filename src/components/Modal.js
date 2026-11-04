@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useId, useRef, useSyncExternalStore } from 'react';
+import React, { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 
 const subscribeEmpty = () => () => {};
 const getClientSnapshot = () => true;
@@ -21,10 +21,27 @@ export default function Modal({
   const isMounted = useSyncExternalStore(subscribeEmpty, getClientSnapshot, getServerSnapshot);
   const titleId = useId();
   const subtitleId = useId();
+  const isDirtyRef = useRef(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  const requestClose = () => {
+    if (isDirtyRef.current && !showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
+    setShowConfirm(false);
+    isDirtyRef.current = false;
+    onCloseRef.current();
+  };
+
+  const requestCloseRef = useRef(requestClose);
+  useEffect(() => {
+    requestCloseRef.current = requestClose;
+  });
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -48,20 +65,10 @@ export default function Modal({
         (element) => element.getAttribute('aria-hidden') !== 'true'
       );
 
-    const requestClose = () => {
-      if (
-        dialog?.dataset.dirty === 'true' &&
-        !window.confirm('Discard unsaved changes and close this dialog?')
-      ) {
-        return;
-      }
-      onCloseRef.current();
-    };
-
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        requestClose();
+        requestCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -89,7 +96,6 @@ export default function Modal({
       }
     };
 
-    dialog?.removeAttribute('data-dirty');
     window.addEventListener('keydown', handleKeyDown);
     const initialFocus = focusableElements()[0] || dialog;
     initialFocus?.focus();
@@ -100,6 +106,8 @@ export default function Modal({
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
         previousFocus.focus();
       }
+      isDirtyRef.current = false;
+      setShowConfirm(false);
     };
   }, [isOpen]);
 
@@ -116,13 +124,7 @@ export default function Modal({
       className="fixed inset-0 z-[9999] overflow-y-auto overscroll-contain bg-slate-950/70 backdrop-blur-xs flex justify-center items-start sm:items-center p-3 sm:p-5 md:p-6 animate-fade-in"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          if (
-            dialogRef.current?.dataset.dirty === 'true' &&
-            !window.confirm('Discard unsaved changes and close this dialog?')
-          ) {
-            return;
-          }
-          onCloseRef.current();
+          requestClose();
         }
       }}
     >
@@ -135,12 +137,12 @@ export default function Modal({
         tabIndex={-1}
         onInputCapture={(event) => {
           if (event.target.matches('input, select, textarea')) {
-            event.currentTarget.dataset.dirty = 'true';
+            isDirtyRef.current = true;
           }
         }}
         onChangeCapture={(event) => {
           if (event.target.matches('input, select, textarea')) {
-            event.currentTarget.dataset.dirty = 'true';
+            isDirtyRef.current = true;
           }
         }}
         className={`relative w-full ${widthClass} my-auto bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[calc(100dvh-2.5rem)] sm:max-h-[calc(100dvh-3.5rem)] overflow-hidden transition-all duration-200`}
@@ -161,20 +163,42 @@ export default function Modal({
           <button
             type="button"
             aria-label="Close dialog"
-            onClick={() => {
-              if (
-                dialogRef.current?.dataset.dirty === 'true' &&
-                !window.confirm('Discard unsaved changes and close this dialog?')
-              ) {
-                return;
-              }
-              onCloseRef.current();
-            }}
+            onClick={requestClose}
             className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Non-blocking Unsaved Changes Confirmation Banner */}
+        {showConfirm && (
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 animate-fade-in shrink-0 select-none">
+            <div className="flex items-center gap-2 text-xs font-semibold">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>Unsaved changes detected. Discard changes and close?</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirm(false);
+                  isDirtyRef.current = false;
+                  onCloseRef.current();
+                }}
+                className="px-2.5 py-1 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer"
+              >
+                Discard & Close
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Modal Body - Smooth full-form scroll when contents are long */}
         <div className="p-4 sm:p-6 md:p-7 overflow-y-auto overflow-x-hidden flex-1 overscroll-contain touch-pan-y text-slate-800 dark:text-slate-100">

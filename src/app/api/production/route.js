@@ -412,7 +412,7 @@ async function postProduction(request) {
       return successResponse({ productionOrder: order }, 'Production order updated');
     }
 
-    if (action === 'DELETE_PRODUCTION_ORDER') {
+    if (action === 'DELETE_ORDER' || action === 'DELETE_PRODUCTION_ORDER') {
       const order = await ProductionOrder.findById(body.orderId);
       if (!order) return errorResponse('Production Order not found', 404);
       if (Number(order.completedQuantity || 0) > 0 || (order.dailyLogs || []).length > 0 ||

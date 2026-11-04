@@ -259,7 +259,7 @@ export default function DesignBOMPage() {
                     recordLabel={selectedDesign.title}
                     onDeleted={() => {
                       setSelectedDesign(null);
-                      fetchDesigns();
+                      fetchData();
                     }}
                     className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                   />

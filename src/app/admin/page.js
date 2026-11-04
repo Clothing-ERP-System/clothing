@@ -509,7 +509,7 @@ export default function AdministrationPage() {
                           idField="userId"
                           recordId={u._id}
                           recordLabel={u.name}
-                          onDeleted={fetchAdminData}
+                          onDeleted={fetchData}
                           className="rounded-lg border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer"
                         />
                       </td>

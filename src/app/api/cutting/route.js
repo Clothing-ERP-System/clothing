@@ -21,7 +21,7 @@ async function getCutting(request) {
   }
 }
 
-async function postCutting(request) {
+async function postCutting(request, actor) {
   try {
     await connectDB();
     const body = await request.json();
@@ -207,10 +207,87 @@ async function postCutting(request) {
       return successResponse({ cuttingOrder: order }, 'Bundles transferred to stitching');
     }
 
-    if (action === 'DELETE_CUTTING_ORDER') {
+    if (action === 'DELETE_ORDER' || action === 'DELETE_CUTTING_ORDER') {
       const order = await CuttingOrder.findById(body.orderId);
       if (!order) return errorResponse('Cutting Order not found', 404);
-      return errorResponse('A cutting order that consumed fabric cannot be deleted; preserve it for stock traceability', 409);
+      if (order.status === 'TransferredToStitching') {
+        return errorResponse('A cutting order already handed over to stitching cannot be deleted; downstream bundles are active', 409);
+      }
+
+      // Restore deducted fabric roll meters if rolls were allocated
+      if (Array.isArray(order.rollsAllocated) && order.rollsAllocated.length > 0) {
+        const lockedFabrics = new Map();
+
+        for (const alloc of order.rollsAllocated) {
+          const rollNumber = String(alloc?.rollNumber || '').trim();
+          const meters = Number(alloc?.metersIssued);
+          if (!rollNumber || !Number.isFinite(meters) || meters <= 0) continue;
+
+          let fabric = lockedFabrics.get(rollNumber);
+          if (!fabric) {
+            const existingFabric = await Fabric.findOne({ 'rolls.rollNumber': rollNumber });
+            if (!existingFabric) {
+              return errorResponse(`Cannot safely restore stock: Fabric for roll ${rollNumber} was not found`, 409);
+            }
+            fabric = lockedFabrics.get(existingFabric._id) || await Fabric.findByIdForUpdate(existingFabric._id);
+            if (!fabric) {
+              return errorResponse(`Cannot safely lock fabric record for roll ${rollNumber}`, 409);
+            }
+            lockedFabrics.set(existingFabric._id, fabric);
+          }
+
+          const targetRoll = fabric.rolls?.find((r) => r.rollNumber === rollNumber);
+          if (!targetRoll) {
+            return errorResponse(`Cannot safely restore stock: Roll ${rollNumber} not found in fabric`, 409);
+          }
+
+          // Restore roll remaining meters
+          targetRoll.remainingMeters = Number(targetRoll.remainingMeters || 0) + meters;
+          if (targetRoll.status === 'Exhausted' && targetRoll.remainingMeters > 0) {
+            targetRoll.status = 'Available';
+          }
+
+          // Append inventory reversal movement
+          recordInventoryMovement(fabric, {
+            type: 'REVERSAL_CUTTING',
+            quantity: meters,
+            unit: 'Meters',
+            direction: 'IN',
+            referenceType: 'CuttingOrderDeletion',
+            referenceId: order._id,
+            referenceNumber: order.orderNumber,
+            sourceItemId: rollNumber,
+            notes: `Restored ${meters}m from deleted cutting order ${order.orderNumber}`,
+          });
+
+          fabric.movements = Array.isArray(fabric.movements) ? fabric.movements : [];
+          const lastMovement = fabric.movements[fabric.movements.length - 1];
+          if (lastMovement) {
+            lastMovement.rollNumber = rollNumber;
+            lastMovement.meters = meters;
+            lastMovement.referenceDocument = order.orderNumber;
+            lastMovement.performedBy = actor?.name || 'System';
+          }
+        }
+
+        // Recalculate totalAvailableMeters and persist all updated fabric records
+        for (const fabric of lockedFabrics.values()) {
+          fabric.totalAvailableMeters = sumAvailableFabricMeters(fabric);
+          await fabric.save();
+        }
+      }
+
+      await CuttingOrder.deleteOne({ _id: order._id });
+
+      await AuditLog.create({
+        userName: actor?.name || '',
+        action: 'DELETE',
+        module: 'Cutting',
+        recordId: order.orderNumber,
+        description: `Cutting order ${order.orderNumber} deleted and fabric roll allocations restored to inventory`,
+      });
+
+      return successResponse({ deletedId: order._id }, 'Cutting order deleted and fabric restored to stock');
     }
 
     return errorResponse('Invalid action', 400);

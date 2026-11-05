@@ -12,13 +12,38 @@ function requiredEnv(name) {
   return value;
 }
 
+function getSSLConfig(host) {
+  if (process.env.MYSQL_SSL === 'false' || process.env.MYSQL_SSL === '0') {
+    return undefined;
+  }
+  if (process.env.MYSQL_SSL === 'true' || process.env.MYSQL_SSL === '1') {
+    return {
+      minVersion: 'TLSv1.2',
+      rejectUnauthorized: true,
+    };
+  }
+  const normalizedHost = String(host || '').trim().toLowerCase();
+  // Keep local MySQL development working without SSL
+  if (!normalizedHost || normalizedHost === 'localhost' || normalizedHost === '127.0.0.1' || normalizedHost === '::1') {
+    return undefined;
+  }
+  // Remote production hosts (like TiDB Cloud Serverless) require secure transport with certificate verification
+  return {
+    minVersion: 'TLSv1.2',
+    rejectUnauthorized: true,
+  };
+}
+
 function createPool() {
   const password = process.env.MYSQL_PASSWORD;
   if (password == null) {
     throw new Error('MYSQL_PASSWORD is not configured. Set it in .env.local.');
   }
+  const host = process.env.MYSQL_HOST || '127.0.0.1';
+  const ssl = getSSLConfig(host);
+
   return mysql.createPool({
-    host: process.env.MYSQL_HOST || '127.0.0.1',
+    host,
     port: Number(process.env.MYSQL_PORT || 3306),
     user: requiredEnv('MYSQL_USER'),
     password,
@@ -28,6 +53,7 @@ function createPool() {
     queueLimit: 0,
     charset: 'utf8mb4',
     timezone: 'Z',
+    ...(ssl ? { ssl } : {}),
   });
 }
 

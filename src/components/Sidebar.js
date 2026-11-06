@@ -7,7 +7,6 @@ import { useAuth } from '@/context/AuthContext';
 import { canAccessModule, resourceForPath } from '@/lib/role-access.js';
 import {
   LayoutDashboard,
-  ShieldAlert,
   ShoppingBag,
   Layers,
   Package,
@@ -36,7 +35,6 @@ const NAV_GROUPS = [
     dotColor: 'bg-[#38BDF8] shadow-[0_0_8px_rgba(56,189,248,0.8)]',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'Administration', href: '/admin', icon: ShieldAlert },
       { name: 'Reports & Analytics', href: '/reports', icon: BarChart3 },
     ],
   },

@@ -7,7 +7,7 @@ import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
-import { BUILT_IN_ROLES, ERP_MODULES, ROLE_ACTIONS } from '@/lib/role-definitions.js';
+import { BUILT_IN_ROLES } from '@/lib/role-definitions.js';
 import ApprovalMatrix from '@/components/ApprovalMatrix';
 import {
   ShieldAlert,
@@ -32,7 +32,6 @@ export default function AdministrationPage() {
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [editingCompany, setEditingCompany] = useState(null);
-  const [roleDraft, setRoleDraft] = useState(null);
   const [resetPasswordUser, setResetPasswordUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
 
@@ -167,55 +166,6 @@ export default function AdministrationPage() {
     } catch {
       addToast('Error updating company settings', 'error');
       return false;
-    }
-  };
-
-  const handleSaveRole = async (event) => {
-    event.preventDefault();
-    const action = roleDraft._id ? 'UPDATE_ROLE' : 'CREATE_ROLE';
-    const payload = {
-      action,
-      name: roleDraft.name,
-      description: roleDraft.description,
-      permissions: roleDraft.permissions,
-    };
-    if (roleDraft._id) payload.roleId = roleDraft._id;
-    try {
-      const response = await fetch('/api/administration', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        addToast(result.message || 'Role could not be saved', 'error');
-        return;
-      }
-      addToast(action === 'CREATE_ROLE' ? 'Custom role created' : 'Role permissions updated', 'success');
-      setRoleDraft(null);
-      await fetchData();
-    } catch {
-      addToast('Error saving role', 'error');
-    }
-  };
-
-  const handleDeleteRole = async (role) => {
-    if (!window.confirm(`Delete the "${role.name}" role? Assigned users must be moved first.`)) return;
-    try {
-      const response = await fetch('/api/administration', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'DELETE_ROLE', roleId: role._id }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        addToast(result.message || 'Role could not be deleted', 'error');
-        return;
-      }
-      addToast('Role deleted', 'success');
-      await fetchData();
-    } catch {
-      addToast('Error deleting role', 'error');
     }
   };
 
@@ -689,131 +639,6 @@ export default function AdministrationPage() {
                   ))}
                 </select>
               </div>
-
-              <section className="border-t border-slate-200 p-4 sm:p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">Custom Roles & Module Permissions</h3>
-                    <p className="text-xs text-slate-500">Grant each action explicitly. Administration and system-management privileges remain SuperAdmin-only.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setRoleDraft({ name: '', description: '', permissions: [] })}
-                    className="rounded-lg bg-[#4F46E5] px-3 py-2 text-xs font-bold text-white hover:bg-[#4338CA]"
-                  >
-                    Create Custom Role
-                  </button>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {roles.map((role) => (
-                    <div key={role._id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-4">
-                      <div>
-                        <p className="text-xs font-bold text-slate-900">{role.name}</p>
-                        <p className="mt-1 text-[11px] text-slate-500">{role.description || 'No description'}</p>
-                        <p className="mt-2 text-[10px] text-slate-500">{role.permissions?.length || 0} assigned permissions</p>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setRoleDraft({ ...role, permissions: [...(role.permissions || [])] })}
-                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteRole(role)}
-                          className="rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-bold text-red-700 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {roles.length === 0 && (
-                    <p className="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
-                      No custom roles have been configured.
-                    </p>
-                  )}
-                </div>
-
-                {roleDraft && (
-                  <form onSubmit={(event) => preventDuplicateSubmit(event, handleSaveRole)} className="mt-5 space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label className="text-xs font-bold text-slate-700">
-                        Role name
-                        <input
-                          required
-                          minLength={2}
-                          maxLength={40}
-                          pattern="[A-Za-z][A-Za-z0-9 _-]{1,39}"
-                          disabled={Boolean(roleDraft._id)}
-                          value={roleDraft.name}
-                          onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })}
-                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal"
-                        />
-                      </label>
-                      <label className="text-xs font-bold text-slate-700">
-                        Description
-                        <input
-                          maxLength={200}
-                          value={roleDraft.description || ''}
-                          onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })}
-                          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-normal"
-                        />
-                      </label>
-                    </div>
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                      <table className="w-full min-w-[760px] text-left text-[11px]">
-                        <thead>
-                          <tr className="border-b border-slate-200 bg-slate-50">
-                            <th className="p-2">Module</th>
-                            {ROLE_ACTIONS.map((permission) => (
-                              <th key={permission} className="p-2 text-center capitalize">{permission}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ERP_MODULES.filter((module) => module !== 'administration').map((module) => (
-                            <tr key={module} className="border-b border-slate-100 last:border-0">
-                              <th className="p-2 font-semibold capitalize text-slate-700">{module}</th>
-                              {ROLE_ACTIONS.map((permission) => {
-                                const key = `${module}:${permission}`;
-                                const restricted = module === 'system' && permission !== 'view';
-                                const checked = roleDraft.permissions.includes(key);
-                                return (
-                                  <td key={key} className="p-2 text-center">
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`${permission} ${module}`}
-                                      disabled={restricted}
-                                      checked={checked}
-                                      onChange={(event) => setRoleDraft({
-                                        ...roleDraft,
-                                        permissions: event.target.checked
-                                          ? [...roleDraft.permissions, key]
-                                          : roleDraft.permissions.filter((item) => item !== key),
-                                      })}
-                                    />
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => setRoleDraft(null)} className="rounded-lg px-3 py-2 text-xs font-bold text-slate-600 hover:bg-white">
-                        Cancel
-                      </button>
-                      <button type="submit" className="rounded-lg bg-[#4F46E5] px-3 py-2 text-xs font-bold text-white hover:bg-[#4338CA]">
-                        Save Role
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </section>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

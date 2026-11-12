@@ -258,7 +258,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                     type="button"
                     key={item.href}
                     onClick={() => navigateToSearchResult(item.href)}
-                    className="block w-full rounded-xl px-3 py-1.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                    className="flex w-full items-center justify-start rounded-xl px-3 py-1.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
                   >
                     {item.name}
                   </button>
@@ -307,7 +307,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                           type="button"
                           key={item.href}
                           onClick={() => navigateToSearchResult(item.href)}
-                          className="block w-full rounded-lg px-3 py-1.5 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                          className="flex w-full items-center justify-start rounded-lg px-3 py-1.5 text-left text-xs text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
                         >
                           {item.name}
                         </button>
@@ -351,7 +351,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                     if (typeof window !== 'undefined') window.localStorage.removeItem('erpdost-unit');
                     setUnitDropdownOpen(false);
                   }}
-                  className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
+                  className={`flex w-full items-center justify-start rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
                     !currentBranch
                       ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold'
                       : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -368,7 +368,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                       if (typeof window !== 'undefined') window.localStorage.setItem('erpdost-unit', b.name);
                       setUnitDropdownOpen(false);
                     }}
-                    className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
+                    className={`flex w-full items-center justify-start rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
                       currentBranch === b.name
                         ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold'
                         : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -500,7 +500,7 @@ export default function Header({ isSidebarExpanded, setIsSidebarExpanded, setIsM
                     <button
                       type="button"
                       onClick={logout}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-1.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                      className="flex w-full items-center justify-start gap-2 rounded-xl px-3 py-1.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
                     >
                       <LogOut className="h-3.5 w-3.5" /> Sign out
                     </button>

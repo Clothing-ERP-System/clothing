@@ -94,12 +94,18 @@ button,
 [role="button"] {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  /* NOTE: Do NOT set justify-content here globally.
+     Buttons that need justify-between (sidebar dropdowns, branch selector)
+     must control their own alignment via Tailwind classes.
+     Buttons that need center alignment already use justify-center via Tailwind. */
   gap: 0.375rem;
   line-height: 1.25;
   white-space: nowrap;
   vertical-align: middle;
 }
+
+/* Buttons with explicit text-left that contain only text (no icon split layout)
+   should start-align their content. Applied via Tailwind's justify-start class. */
 
 button:not(:disabled):active,
 [role="button"]:not(:disabled):active {
@@ -660,15 +666,20 @@ main [class*="bg-[#4F46E5]"].text-white[class*="rounded"] {
 }
 
 /* Inactive tab buttons */
-main .bg-slate-100,
-main .bg-slate-50 {
-  background: rgba(238, 242, 255, 0.5) !important;
-  transition: all 0.2s ease !important;
-}
+/* Inactive tab buttons — only target tab-shaped buttons, not all bg-slate-100/50 elements.
+   IMPORTANT: Do NOT apply the lavender override to all bg-slate-100/50 elements globally,
+   as it breaks status badges, inline backgrounds, table cells, and other components
+   that use these classes for their own intended color. This rule is intentionally removed. */
+/* main .bg-slate-100,
+main .bg-slate-50 — these overrides were removed because they caused:
+   1. Unexpected lavender backgrounds on status badges
+   2. Broken tab inactive states in module pages
+   3. Incorrect backgrounds on form elements and table rows
+   The indigo/lavender theming is handled per-component through Tailwind classes. */
 
 main .bg-slate-100:hover,
 main .bg-slate-50:hover {
-  background: rgba(224, 231, 255, 0.6) !important;
+  /* Subtle hover tint only — does not override base background color */
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1135,7 +1146,10 @@ main .border-dashed.border-slate-300 {
 main .bg-white,
 .erp-card {
   position: relative;
-  overflow: hidden;
+  /* overflow: hidden is intentionally NOT set here globally.
+     The decorative ::before/::after pseudo-elements use pointer-events: none
+     and are positioned absolutely, so they do not need overflow:hidden on the parent.
+     Applying overflow:hidden here was clipping card content and making cards appear shorter. */
   border: 1px solid rgba(129, 140, 248, 0.18) !important;
   box-shadow: 0 2px 14px rgba(99, 102, 241, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03) !important;
 }

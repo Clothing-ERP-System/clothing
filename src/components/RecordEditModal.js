@@ -200,13 +200,13 @@ function RecordEditForm({ record, fields, onSave, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg"
+            className="inline-flex items-center justify-center whitespace-nowrap px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm"
+            className="inline-flex items-center justify-center whitespace-nowrap px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm transition-colors cursor-pointer"
           >
             Save Changes
           </button>

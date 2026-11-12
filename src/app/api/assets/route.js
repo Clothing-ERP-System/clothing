@@ -6,6 +6,7 @@ import { successResponse, errorResponse, fromError } from '@/lib/api-response.js
 import { applyListQuery, deleteRecord, parseListQuery, pickFields } from '@/lib/query.js';
 import { withAuthorization } from '@/lib/authorization.js';
 import { postBalancedJournalEntry } from '@/lib/accounting.js';
+import { resolveAndValidateMapping, validateMappingsPresent, getCompanyContext } from '@/lib/accounting-mappings.js';
 
 async function getAssets(request) {
   try {
@@ -79,38 +80,47 @@ async function postAssets(request, user) {
       }
 
       let journalEntryId = null;
-      if (expenseAccountCode && accumulatedAccountCode) {
-        const expenseAcc = await AccountHead.findOne({ code: expenseAccountCode });
-        const accumAcc = await AccountHead.findOne({ code: accumulatedAccountCode });
-        if (!expenseAcc || !accumAcc) {
-          return errorResponse('Selected depreciation accounts do not exist', 400);
-        }
+      // Resolve depreciation accounts from company mappings
+      const company = await getCompanyContext();
+      const mappings = company && company.accountingMappings ? company.accountingMappings : {};
+      const missingMappingErr = validateMappingsPresent(mappings, [
+        'depreciationExpenseAccountCode',
+        'accumulatedDepreciationAccountCode',
+      ], 'asset depreciation posting');
+      if (missingMappingErr) return errorResponse(missingMappingErr, 409);
 
-        const sequence = await allocateSequence('asset_depreciation');
-        const sourceKey = `ASSET_DEP:${asset.assetCode}:${sequence}`;
-        const { entry } = await postBalancedJournalEntry({
-          sourceKey,
-          voucherType: 'DepreciationVoucher',
-          narration: `Depreciation for asset ${asset.assetCode} - ${asset.assetName}`,
-          referenceNumber: asset.assetCode,
-          postedBy: user?.name || 'System',
-          lines: [
-            {
-              accountCode: expenseAcc.code,
-              debit: depAmount,
-              credit: 0,
-              memo: `Depreciation expense - ${asset.assetName}`,
-            },
-            {
-              accountCode: accumAcc.code,
-              debit: 0,
-              credit: depAmount,
-              memo: `Accumulated depreciation - ${asset.assetName}`,
-            },
-          ],
-        });
-        journalEntryId = entry._id;
-      }
+      const expenseResult = await resolveAndValidateMapping(mappings, 'depreciationExpenseAccountCode', 'OperatingExpense');
+      if (expenseResult.error) return errorResponse(expenseResult.error, 400);
+      const accumResult = await resolveAndValidateMapping(mappings, 'accumulatedDepreciationAccountCode', 'Asset');
+      if (accumResult.error) return errorResponse(accumResult.error, 400);
+
+      const expenseAcc = expenseResult.account;
+      const accumAcc = accumResult.account;
+
+      const sequence = await allocateSequence('asset_depreciation');
+      const sourceKey = `ASSET_DEP:${asset.assetCode}:${sequence}`;
+      const { entry } = await postBalancedJournalEntry({
+        sourceKey,
+        voucherType: 'DepreciationVoucher',
+        narration: `Depreciation for asset ${asset.assetCode} - ${asset.assetName}`,
+        referenceNumber: asset.assetCode,
+        postedBy: user?.name || 'System',
+        lines: [
+          {
+            accountCode: expenseAcc.code,
+            debit: depAmount,
+            credit: 0,
+            memo: `Depreciation expense - ${asset.assetName}`,
+          },
+          {
+            accountCode: accumAcc.code,
+            debit: 0,
+            credit: depAmount,
+            memo: `Accumulated depreciation - ${asset.assetName}`,
+          },
+        ],
+      });
+      journalEntryId = entry._id;
 
       asset.accumulatedDepreciationPKR = (Number(asset.accumulatedDepreciationPKR) || 0) + depAmount;
       asset.currentBookValuePKR = Math.max(0, currentBookValue - depAmount);
@@ -215,6 +225,147 @@ async function postAssets(request, user) {
       const trip = await deleteRecord(VehicleTrip, body.tripId);
       if (!trip) return errorResponse('Trip not found', 404);
       return successResponse({ trip }, 'Trip deleted');
+    }
+
+    if (action === 'DISPOSE_ASSET') {
+      const { assetId, disposalDate, proceedsAmount, disposalReason } = body;
+      const asset = await Asset.findByIdForUpdate(assetId);
+      if (!asset) return errorResponse('Asset not found', 404);
+      if (asset.status === 'Disposed') {
+        return errorResponse('This asset has already been disposed', 409);
+      }
+      const proceeds = Number(proceedsAmount ?? 0);
+      if (!Number.isFinite(proceeds) || proceeds < 0) {
+        return errorResponse('Disposal proceeds must be a non-negative number', 400);
+      }
+
+      // Resolve accounting mappings
+      const company = await getCompanyContext();
+      const mappings = company && company.accountingMappings ? company.accountingMappings : {};
+      const missingErr = validateMappingsPresent(mappings, [
+        'fixedAssetAccountCode',
+        'accumulatedDepreciationAccountCode',
+      ], 'asset disposal');
+      if (missingErr) return errorResponse(missingErr, 409);
+
+      const assetAccResult = await resolveAndValidateMapping(mappings, 'fixedAssetAccountCode', 'Asset');
+      if (assetAccResult.error) return errorResponse(assetAccResult.error, 400);
+      const accumAccResult = await resolveAndValidateMapping(mappings, 'accumulatedDepreciationAccountCode', 'Asset');
+      if (accumAccResult.error) return errorResponse(accumAccResult.error, 400);
+
+      const originalCost = Number(asset.originalCostPKR || 0);
+      const accumulatedDep = Number(asset.accumulatedDepreciationPKR || 0);
+      const netBookValue = Math.max(0, originalCost - accumulatedDep);
+      const gainLoss = proceeds - netBookValue;
+      const isGain = gainLoss > 0;
+      const isLoss = gainLoss < 0;
+
+      // Build disposal journal lines
+      // Dr: Accumulated Depreciation (reversal)
+      // Dr: Cash/Proceeds (if any)
+      // Dr: Loss on Disposal (if loss)
+      // Cr: Fixed Asset Account (original cost)
+      // Cr: Gain on Disposal (if gain)
+      const disposalSourceKey = `ASSET_DISPOSE:${asset._id}:${Date.now()}`;
+      const lines = [];
+
+      // Reverse accumulated depreciation: Dr AccumulatedDepreciation
+      if (accumulatedDep > 0) {
+        lines.push({
+          accountCode: accumAccResult.account.code,
+          accountName: accumAccResult.account.name,
+          debit: accumulatedDep,
+          credit: 0,
+          memo: `Reverse accumulated depreciation on ${asset.assetCode}`,
+        });
+      }
+
+      // Credit the full asset cost
+      lines.push({
+        accountCode: assetAccResult.account.code,
+        accountName: assetAccResult.account.name,
+        debit: 0,
+        credit: originalCost,
+        memo: `Dispose fixed asset ${asset.assetCode} at original cost`,
+      });
+
+      // Handle proceeds: use bank/cash account mapping if available
+      if (proceeds > 0) {
+        const cashCode = mappings.cashAccountCode || mappings.bankAccountCode;
+        if (!cashCode) return errorResponse('cashAccountCode or bankAccountCode must be configured to record disposal proceeds', 409);
+        const cashAccResult = await resolveAndValidateMapping(mappings, mappings.cashAccountCode ? 'cashAccountCode' : 'bankAccountCode', 'Asset');
+        if (cashAccResult.error) return errorResponse(cashAccResult.error, 400);
+        lines.push({
+          accountCode: cashAccResult.account.code,
+          accountName: cashAccResult.account.name,
+          debit: proceeds,
+          credit: 0,
+          memo: `Proceeds from disposal of ${asset.assetCode}`,
+        });
+      }
+
+      // Gain or loss
+      if (Math.abs(gainLoss) > 0.01) {
+        // For gain: Cr Other Income; for loss: Dr OperatingExpense
+        const gainLossCode = mappings.scrapWriteOffAccountCode || mappings.expenseAccountCode;
+        if (!gainLossCode) return errorResponse('scrapWriteOffAccountCode or expenseAccountCode must be configured to record disposal gain/loss', 409);
+        const gainLossAcc = await AccountHead.findOne({ code: gainLossCode });
+        if (!gainLossAcc) return errorResponse(`Gain/loss account (${gainLossCode}) not found`, 409);
+        if (isGain) {
+          lines.push({
+            accountCode: gainLossAcc.code,
+            accountName: gainLossAcc.name,
+            debit: 0,
+            credit: gainLoss,
+            memo: `Gain on disposal of ${asset.assetCode}`,
+          });
+        } else {
+          lines.push({
+            accountCode: gainLossAcc.code,
+            accountName: gainLossAcc.name,
+            debit: Math.abs(gainLoss),
+            credit: 0,
+            memo: `Loss on disposal of ${asset.assetCode}`,
+          });
+        }
+      }
+
+      await postBalancedJournalEntry({
+        sourceKey: disposalSourceKey,
+        voucherType: 'AssetDisposal',
+        narration: `Asset disposal: ${asset.assetCode} — ${asset.assetName}. NBV: Rs. ${netBookValue.toLocaleString()}, Proceeds: Rs. ${proceeds.toLocaleString()}, ${isGain ? 'Gain' : isLoss ? 'Loss' : 'No gain/loss'}: Rs. ${Math.abs(gainLoss).toLocaleString()}`,
+        referenceNumber: asset.assetCode,
+        postedBy: user?.name || '',
+        lines,
+      });
+
+      asset.status = 'Disposed';
+      asset.disposalDate = disposalDate ? new Date(disposalDate) : new Date();
+      asset.disposalProceeds = proceeds;
+      asset.disposalReason = String(disposalReason || '').trim();
+      asset.netBookValueAtDisposal = netBookValue;
+      asset.gainLossOnDisposal = gainLoss;
+      await asset.save();
+
+      await AuditLog.create({
+        userName: user?.name || '',
+        action: 'DISPOSE',
+        module: 'Assets',
+        recordId: asset.assetCode,
+        description: `Disposed asset ${asset.assetCode} — ${asset.assetName}. Original cost: Rs. ${originalCost}, Accumulated dep: Rs. ${accumulatedDep}, NBV: Rs. ${netBookValue}, Proceeds: Rs. ${proceeds}, ${isGain ? 'Gain' : 'Loss'}: Rs. ${Math.abs(gainLoss)}`,
+      });
+
+      return successResponse({
+        asset,
+        disposalSummary: {
+          originalCost,
+          accumulatedDepreciation: accumulatedDep,
+          netBookValue,
+          proceeds,
+          gainLoss,
+          outcome: isGain ? 'Gain on Disposal' : isLoss ? 'Loss on Disposal' : 'Break-even',
+        },
+      }, 'Asset disposed and accounting entry posted');
     }
 
     return errorResponse('Invalid action', 400);

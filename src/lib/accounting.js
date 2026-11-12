@@ -65,7 +65,7 @@ export async function postBalancedJournalEntry({
   const voucherNumber = `JV-${new Date().getFullYear()}-${String(sequence).padStart(4, '0')}`;
   const entry = await JournalEntry.create({
     voucherNumber,
-    sourceKey: sourceKey || '',
+    sourceKey: sourceKey ? String(sourceKey).trim() : null,
     voucherType: voucherType || 'JournalVoucher',
     date: new Date(),
     narration,

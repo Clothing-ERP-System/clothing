@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Wrench,
   Plus,
@@ -17,6 +19,7 @@ import {
   FileText,
   DollarSign,
   Fuel,
+  Eye,
 } from 'lucide-react';
 
 export default function AssetsFleetPage() {
@@ -33,6 +36,8 @@ export default function AssetsFleetPage() {
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [depAsset, setDepAsset] = useState(null);
   const [editingAsset, setEditingAsset] = useState(null);
+  const [viewAsset, setViewAsset] = useState(null);
+  const [viewTrip, setViewTrip] = useState(null);
 
   const [depForm, setDepForm] = useState({
     amountPKR: '',
@@ -70,7 +75,7 @@ export default function AssetsFleetPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/assets');
+      const res = await apiFetch('/api/assets');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -89,7 +94,7 @@ export default function AssetsFleetPage() {
   const handleCreateAsset = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/assets', {
+      const res = await apiFetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_ASSET', ...newAsset }),
@@ -109,7 +114,7 @@ export default function AssetsFleetPage() {
 
   const handleUpdateAsset = async (assetId, updates) => {
     try {
-      const response = await fetch('/api/assets', {
+      const response = await apiFetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_ASSET', assetId, ...updates }),
@@ -139,7 +144,7 @@ export default function AssetsFleetPage() {
     if (!selectedAsset) return;
 
     try {
-      const res = await fetch('/api/assets', {
+      const res = await apiFetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +169,7 @@ export default function AssetsFleetPage() {
   const handleLogTrip = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/assets', {
+      const res = await apiFetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'LOG_TRIP', ...tripForm }),
@@ -186,7 +191,7 @@ export default function AssetsFleetPage() {
     e.preventDefault();
     if (!depAsset) return;
     try {
-      const res = await fetch('/api/assets', {
+      const res = await apiFetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -336,6 +341,14 @@ export default function AssetsFleetPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setViewAsset(asset)}
+                  className="w-full py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors"
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  View Details
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEditingAsset(asset)}
                   className="w-full py-2 rounded-lg border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-50 transition-colors"
                 >
@@ -375,6 +388,7 @@ export default function AssetsFleetPage() {
                     <th className="py-3 px-4">Distance</th>
                     <th className="py-3 px-4">Fuel Expense</th>
                     <th className="py-3 px-4">Purpose</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -391,6 +405,15 @@ export default function AssetsFleetPage() {
                       <td className="py-3 px-4 text-slate-700 font-medium">{t.kilometersTraveled} km</td>
                       <td className="py-3 px-4 font-bold text-red-600">Rs. {t.fuelCostPKR?.toLocaleString()}</td>
                       <td className="py-3 px-4 text-slate-600">{t.purpose}</td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => setViewTrip(t)}
+                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -741,6 +764,70 @@ export default function AssetsFleetPage() {
           title={`Edit Asset: ${editingAsset?.assetCode || ''}`}
           fields={ASSET_EDIT_FIELDS}
           onSave={handleUpdateAsset}
+        />
+
+        {/* View Asset Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewAsset)}
+          onClose={() => setViewAsset(null)}
+          record={viewAsset}
+          title={`Asset: ${viewAsset?.assetCode || ''} — ${viewAsset?.assetName || ''}`}
+          subtitle={`${viewAsset?.category} • ${viewAsset?.locationFloor} • Status: ${viewAsset?.status || ''}`}
+          fields={[
+            { name: 'assetCode', label: 'Asset Code', type: 'text' },
+            { name: 'assetName', label: 'Equipment Name', type: 'text' },
+            { name: 'category', label: 'Category', type: 'text' },
+            { name: 'brandModel', label: 'Brand / Model', type: 'text' },
+            { name: 'originalCostPKR', label: 'Original Purchase Cost (PKR)', type: 'money' },
+            { name: 'accumulatedDepreciationPKR', label: 'Accumulated Depreciation (PKR)', type: 'money' },
+            { name: 'currentBookValuePKR', label: 'Current Book Value (PKR)', type: 'money' },
+            { name: 'locationFloor', label: 'Floor Location', type: 'text' },
+            { name: 'usefulLifeYears', label: 'Useful Life (Years)', type: 'text' },
+            { name: 'salvageValuePKR', label: 'Salvage Value (PKR)', type: 'money' },
+            { name: 'status', label: 'Asset Status', type: 'text' },
+            {
+              name: 'maintenanceHistory',
+              label: 'Maintenance History',
+              type: 'array',
+              itemFields: [
+                { name: 'serviceDate', label: 'Service Date', type: 'date' },
+                { name: 'workDone', label: 'Work Done' },
+                { name: 'costPKR', label: 'Cost (PKR)', type: 'money' },
+                { name: 'technician', label: 'Technician' },
+              ],
+            },
+            {
+              name: 'depreciationHistory',
+              label: 'Depreciation History',
+              type: 'array',
+              itemFields: [
+                { name: 'date', label: 'Date', type: 'date' },
+                { name: 'amountPKR', label: 'Amount (PKR)', type: 'money' },
+                { name: 'bookValueAfter', label: 'Book Value After', type: 'money' },
+                { name: 'notes', label: 'Notes' },
+              ],
+            },
+          ]}
+        />
+
+        {/* View Vehicle Trip Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewTrip)}
+          onClose={() => setViewTrip(null)}
+          record={viewTrip}
+          title={`Trip: ${viewTrip?.vehicleRegistrationNumber || ''}`}
+          subtitle={`Driver: ${viewTrip?.driverName || ''} • ${viewTrip?.startLocation || ''} → ${viewTrip?.destinationLocation || ''}`}
+          fields={[
+            { name: 'vehicleRegistrationNumber', label: 'Vehicle Registration #', type: 'text' },
+            { name: 'driverName', label: 'Driver Name', type: 'text' },
+            { name: 'startLocation', label: 'Start Location', type: 'text' },
+            { name: 'destinationLocation', label: 'Destination Location', type: 'text' },
+            { name: 'purpose', label: 'Delivery Purpose', type: 'text' },
+            { name: 'kilometersTraveled', label: 'Kilometers Traveled', type: 'text' },
+            { name: 'fuelCostPKR', label: 'Fuel Cost (PKR)', type: 'money' },
+            { name: 'challanReference', label: 'Challan Reference', type: 'text' },
+            { name: 'tripDate', label: 'Trip Date', type: 'date' },
+          ]}
         />
       </div>
     </Layout>

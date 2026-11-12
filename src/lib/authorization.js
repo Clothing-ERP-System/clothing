@@ -115,10 +115,28 @@ export function withAuthorization(handler, module, operation = 'read', forcedAct
 
     if (operation !== 'write') return handler(...handlerArgs);
 
+    // CSRF protection for state-changing write operations.
+    // Validates the X-CSRF-Token header against the csrf_token cookie
+    // set during login (double-submit cookie pattern).
+    const csrfError = await validateCsrfToken(args[0]);
+    if (csrfError) return csrfError;
+
     try {
-      return await runInTransaction(() => handler(...handlerArgs));
+      return await runInTransaction(() => handler(...handlerArgs), handler.onSettle);
     } catch (error) {
       return fromError(error, 503);
     }
   };
+}
+
+export async function validateCsrfToken(request) {
+  if (!request || typeof request.headers.get !== 'function') return null;
+  const { cookies } = await import('next/headers');
+  const cookieStore = await cookies();
+  const csrfCookie = String(cookieStore.get('csrf_token')?.value || '');
+  const csrfHeader = String(request.headers.get('x-csrf-token') || '');
+  if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+    return forbiddenResponse('CSRF token validation failed');
+  }
+  return null;
 }

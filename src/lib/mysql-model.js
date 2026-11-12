@@ -240,11 +240,20 @@ class ModelQuery {
   populate() { return this; }
 
   async execute() {
+    const [filter = {}, projection] = this.args;
+    const singleId = (filter && typeof filter === 'object' && Object.keys(filter).length === 1) ? (filter._id || filter.id) : null;
+    if (this.operation === 'findOne' && singleId && (typeof singleId === 'string' || typeof singleId === 'number')) {
+      await ensureTable(this.model.table, this.model.uniqueFields);
+      const [rows] = await pool.query(`SELECT payload FROM \`${this.model.table}\` WHERE id = ? LIMIT 1`, [String(singleId)]);
+      if (!rows || !rows[0]) return null;
+      const parsed = parsePayload(rows[0].payload);
+      return decorate(applyProjection(parsed, projection), this.model);
+    }
+
     const records = await readRecords(this.model);
     if (this.operation === 'count') {
       return records.filter((record) => matches(record, this.args[0])).length;
     }
-    const [filter = {}, projection] = this.args;
     let found = records.filter((record) => matches(record, filter));
     if (this.sortSpec) {
       found.sort((left, right) => {
@@ -310,6 +319,18 @@ export function createMySQLModel(name, uniqueFields = []) {
   model.findByIdForUpdate = async (id) => {
     await ensureTable(model.table, model.uniqueFields);
     const [rows] = await pool.query(`SELECT payload FROM \`${model.table}\` WHERE id = ? FOR UPDATE`, [String(id)]);
+    return rows[0] ? decorate(parsePayload(rows[0].payload), model) : null;
+  };
+
+  // Find and lock PO by GRN number in a single transaction-safe operation.
+  // This must be the FIRST query in the transaction so subsequent reads
+  // see committed data up to this point under REPEATABLE READ isolation.
+  model.findByGrnNumberForUpdate = async (grnNumber) => {
+    await ensureTable(model.table, model.uniqueFields);
+    const [rows] = await pool.query(
+      `SELECT payload FROM \`${model.table}\` WHERE JSON_CONTAINS(payload->'$.grns', JSON_OBJECT('grnNumber', ?)) FOR UPDATE`,
+      [grnNumber]
+    );
     return rows[0] ? decorate(parsePayload(rows[0].payload), model) : null;
   };
   model.countDocuments = (filter = {}) => new ModelQuery(model, 'count', [filter]);

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Modal from './Modal';
+import BarcodeRenderer from './BarcodeRenderer';
 import { Printer, CheckCircle } from 'lucide-react';
 
 export default function ReceiptModal({ isOpen, onClose, transaction }) {
@@ -90,13 +91,18 @@ export default function ReceiptModal({ isOpen, onClose, transaction }) {
 
           <div className="border-b border-dashed border-slate-300 my-3"></div>
 
-          {/* Barcode visual simulation */}
-          <div className="text-center">
-            <div className="inline-block bg-slate-900 text-white font-mono tracking-widest px-3 py-1 text-[10px] rounded">
-              ||||| | |||| |||| || | |||||
-            </div>
-            <p className="text-[10px] text-slate-500 mt-1">{transaction.receiptNumber}</p>
-            <p className="text-[10px] text-slate-500 italic mt-2">Thank you for your purchase.</p>
+          {/* Standards-Compliant Code 128 Barcode */}
+          <div className="text-center py-1">
+            <BarcodeRenderer
+              value={transaction.receiptNumber}
+              format="CODE128"
+              width={1.4}
+              height={38}
+              displayValue={true}
+              fontSize={10}
+              className="my-1"
+            />
+            <p className="text-[10px] text-slate-500 italic mt-1">Thank you for your purchase.</p>
           </div>
         </div>
 

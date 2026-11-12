@@ -181,7 +181,7 @@ export default function Modal({
               <button
                 type="button"
                 onClick={() => setShowConfirm(false)}
-                className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 Keep Editing
               </button>
@@ -192,7 +192,7 @@ export default function Modal({
                   isDirtyRef.current = false;
                   onCloseRef.current();
                 }}
-                className="px-2.5 py-1 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors cursor-pointer"
               >
                 Discard & Close
               </button>

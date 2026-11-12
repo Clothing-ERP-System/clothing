@@ -6,6 +6,7 @@ import { successResponse, errorResponse, fromError } from '@/lib/api-response.js
 import { applyListQuery, deleteRecord, parseListQuery, pickFields } from '@/lib/query.js';
 import { withAuthorization } from '@/lib/authorization.js';
 import { postBalancedJournalEntry } from '@/lib/accounting.js';
+import { resolveAndValidateMapping, validateMappingsPresent, getCompanyContext } from '@/lib/accounting-mappings.js';
 
 async function getHr(request) {
   try {
@@ -153,12 +154,22 @@ async function postHr(request) {
       if (!Number.isFinite(netPayablePKR) || netPayablePKR <= 0) {
         return errorResponse('Payroll amount must be a positive, supported value before it can be posted', 400);
       }
-      const expenseAccount = await AccountHead.findOne({ code: expenseAccountCode });
-      const payableAccount = await AccountHead.findOne({ code: payableAccountCode });
-      if (!expenseAccount || expenseAccount.type !== 'OperatingExpense' ||
-        !payableAccount || payableAccount.type !== 'Liability') {
-        return errorResponse('Select a payroll operating-expense account and a payroll payable liability account', 400);
-      }
+      // Resolve payroll accounts from company mappings
+      const company = await getCompanyContext();
+      const mappings = company && company.accountingMappings ? company.accountingMappings : {};
+      const missingMappingErr = validateMappingsPresent(mappings, [
+        'payrollExpenseAccountCode',
+        'payrollPayableAccountCode',
+      ], 'payroll posting');
+      if (missingMappingErr) return errorResponse(missingMappingErr, 409);
+
+      const expenseResult = await resolveAndValidateMapping(mappings, 'payrollExpenseAccountCode', 'OperatingExpense');
+      if (expenseResult.error) return errorResponse(expenseResult.error, 400);
+      const payableResult = await resolveAndValidateMapping(mappings, 'payrollPayableAccountCode', 'Liability');
+      if (payableResult.error) return errorResponse(payableResult.error, 400);
+
+      const expenseAccount = expenseResult.account;
+      const payableAccount = payableResult.account;
 
       const slip = await PayrollSlip.create({
         payrollKey,

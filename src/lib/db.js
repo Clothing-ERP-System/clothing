@@ -3,6 +3,41 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const globalForMySQL = globalThis;
 const transactionStorage = new AsyncLocalStorage();
+const taintedConnections = new Set();
+
+export { transactionStorage };
+
+/**
+ * Mark the current transaction connection as tainted.
+ * A tainted connection must be destroyed instead of returned to the pool,
+ * because it may still hold session-level resources (e.g. advisory locks).
+ */
+export function taintConnection(connection) {
+  if (connection) taintedConnections.add(connection);
+}
+
+/**
+ * Release a connection back to the pool, or destroy it if it has been tainted.
+ * A tainted connection may hold session-level state (e.g. advisory locks) that
+ * must not be leaked to the next pool consumer.
+ */
+export async function releaseOrDestroyConnection(connection) {
+  if (!connection) return;
+  if (taintedConnections.has(connection)) {
+    taintedConnections.delete(connection);
+    try {
+      await connection.destroy();
+    } catch {
+      // Best-effort destroy; if it fails, the connection is already dead.
+    }
+  } else {
+    try {
+      await connection.release();
+    } catch {
+      // Best-effort release; if it fails, the connection may be dead.
+    }
+  }
+}
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -70,7 +105,7 @@ export const pool = {
   execute: (...args) => (transactionStorage.getStore() || getPool()).execute(...args),
 };
 
-export async function runInTransaction(callback) {
+export async function runInTransaction(callback, onSettle) {
   if (transactionStorage.getStore()) return callback();
 
   const connection = await getPool().getConnection();
@@ -102,7 +137,15 @@ export async function runInTransaction(callback) {
     }
     throw error;
   } finally {
-    connection.release();
+    if (onSettle) {
+      try {
+        await onSettle(connection);
+      } catch (error) {
+        taintConnection(connection);
+        console.error('onSettle callback failed:', error);
+      }
+    }
+    await releaseOrDestroyConnection(connection);
   }
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useState, useEffect } from 'react';
+import { apiFetch } from '@/lib/apiFetch.js';
 import Layout from '@/components/Layout';
 import Link from 'next/link';
 import {
@@ -25,7 +26,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
 
   const requestStats = useCallback(async () => {
-    const response = await fetch('/api/dashboard/stats', { cache: 'no-store' });
+    const response = await apiFetch('/api/dashboard/stats', { cache: 'no-store' });
     const result = await response.json();
     if (!response.ok || !result.success) {
       throw new Error(result.message || 'Unable to load dashboard data');

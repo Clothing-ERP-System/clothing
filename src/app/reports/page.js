@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import { useAuth } from '@/context/AuthContext';
 import { canAccessModule } from '@/lib/role-access.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   BarChart3,
   Download,
@@ -42,13 +43,13 @@ export default function ReportsAnalyticsPage() {
     async function fetchReportsData() {
       try {
         const [resProd, resFab, resTrim, resSales, resProc, resHr, resFin] = await Promise.all([
-          fetch('/api/production'),
-          fetch('/api/fabric'),
-          fetch('/api/trims'),
-          fetch('/api/sales'),
-          fetch('/api/procurement'),
-          fetch('/api/hr'),
-          fetch('/api/finance'),
+          apiFetch('/api/production'),
+          apiFetch('/api/fabric'),
+          apiFetch('/api/trims'),
+          apiFetch('/api/sales'),
+          apiFetch('/api/procurement'),
+          apiFetch('/api/hr'),
+          apiFetch('/api/finance'),
         ]);
         const [jsonProd, jsonFab, jsonTrim, jsonSales, jsonProc, jsonHr, jsonFin] = await Promise.all([
           resProd.json(),

@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   DollarSign,
   Plus,
@@ -19,6 +21,7 @@ import {
   AlertCircle,
   PlusCircle,
   Trash2,
+  Eye,
 } from 'lucide-react';
 
 const accountTypes = ['Asset', 'Liability', 'Equity', 'Revenue', 'CostOfGoodsSold', 'OperatingExpense'];
@@ -36,6 +39,10 @@ export default function FinanceAccountsPage() {
   const [isNewAccountOpen, setIsNewAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const [newAccount, setNewAccount] = useState({ code: '', name: '', type: 'Asset', balance: '' });
+  // View modals
+  const [viewAccount, setViewAccount] = useState(null);
+  const [viewJournal, setViewJournal] = useState(null);
+  const [viewExpense, setViewExpense] = useState(null);
 
   // New Journal Voucher Form
   const [newJV, setNewJV] = useState({
@@ -61,7 +68,7 @@ export default function FinanceAccountsPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/finance');
+      const res = await apiFetch('/api/finance');
       const json = await res.json();
       if (!res.ok || !json.success) {
         throw new Error(json.message || 'Unable to load finance data');
@@ -84,7 +91,7 @@ export default function FinanceAccountsPage() {
   const handleCreateJV = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/finance', {
+      const res = await apiFetch('/api/finance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_JOURNAL_VOUCHER', ...newJV }),
@@ -105,7 +112,7 @@ export default function FinanceAccountsPage() {
   const handleCreateExpense = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/finance', {
+      const res = await apiFetch('/api/finance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_EXPENSE', ...newExpense }),
@@ -126,7 +133,7 @@ export default function FinanceAccountsPage() {
   const handleCreateAccount = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/finance', {
+      const response = await apiFetch('/api/finance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_ACCOUNT', ...newAccount }),
@@ -147,7 +154,7 @@ export default function FinanceAccountsPage() {
 
   const handleUpdateAccount = async (accountId, updates) => {
     try {
-      const response = await fetch('/api/finance', {
+      const response = await apiFetch('/api/finance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_ACCOUNT', accountId, ...updates }),
@@ -432,6 +439,14 @@ export default function FinanceAccountsPage() {
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
+                            onClick={() => setViewAccount(acc)}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => setEditingAccount(acc)}
                             className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
                           >
@@ -524,6 +539,7 @@ export default function FinanceAccountsPage() {
                     <th className="py-3 px-4">Paid To</th>
                     <th className="py-3 px-4">Amount</th>
                     <th className="py-3 px-4">Paid From</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -535,6 +551,16 @@ export default function FinanceAccountsPage() {
                       <td className="py-3 px-4 text-slate-700 font-medium">{exp.paidTo}</td>
                       <td className="py-3 px-4 font-bold text-[#DC2626]">Rs. {exp.amount?.toLocaleString()}</td>
                       <td className="py-3 px-4 text-slate-500">{exp.paidFromAccount}</td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setViewExpense(exp)}
+                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -835,6 +861,76 @@ export default function FinanceAccountsPage() {
           title={`Edit Account: ${editingAccount?.code || ''}`}
           fields={ACCOUNT_EDIT_FIELDS}
           onSave={handleUpdateAccount}
+        />
+
+        {/* View Account Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewAccount)}
+          onClose={() => setViewAccount(null)}
+          record={viewAccount}
+          title={`Account: ${viewAccount?.code || ''} — ${viewAccount?.name || ''}`}
+          subtitle={`Type: ${viewAccount?.type || ''} • Balance: Rs. ${Number(viewAccount?.balance || 0).toLocaleString()}`}
+          fields={[
+            { name: 'code', label: 'Account Code', type: 'text' },
+            { name: 'name', label: 'Account Name', type: 'text' },
+            { name: 'type', label: 'Account Type', type: 'text' },
+            { name: 'balance', label: 'Current Balance', type: 'money' },
+            { name: 'bankName', label: 'Bank Name', type: 'text' },
+            { name: 'accountNumber', label: 'Account Number', type: 'text' },
+            { name: 'branchCode', label: 'Branch Code', type: 'text' },
+            { name: 'isBank', label: 'Is Bank Account', type: 'boolean' },
+          ]}
+        />
+
+        {/* View Journal Entry Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewJournal)}
+          onClose={() => setViewJournal(null)}
+          record={viewJournal}
+          title={`Journal Voucher: ${viewJournal?.voucherNumber || ''}`}
+          subtitle={`Type: ${viewJournal?.voucherType || ''} • Posted by ${viewJournal?.postedBy || ''}`}
+          fields={[
+            { name: 'voucherNumber', label: 'Voucher Number', type: 'text' },
+            { name: 'voucherType', label: 'Voucher Type', type: 'text' },
+            { name: 'date', label: 'Date', type: 'date' },
+            { name: 'narration', label: 'Narration', type: 'text' },
+            { name: 'referenceNumber', label: 'Reference Number', type: 'text' },
+            { name: 'totalDebit', label: 'Total Debit', type: 'money' },
+            { name: 'totalCredit', label: 'Total Credit', type: 'money' },
+            { name: 'postedBy', label: 'Posted By', type: 'text' },
+            {
+              name: 'lines',
+              label: 'Journal Lines',
+              type: 'array',
+              itemFields: [
+                { name: 'accountCode', label: 'Account Code' },
+                { name: 'accountName', label: 'Account Name' },
+                { name: 'debit', label: 'Debit', type: 'money' },
+                { name: 'credit', label: 'Credit', type: 'money' },
+                { name: 'memo', label: 'Memo' },
+              ],
+            },
+          ]}
+        />
+
+        {/* View Expense Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewExpense)}
+          onClose={() => setViewExpense(null)}
+          record={viewExpense}
+          title={`Expense: ${viewExpense?.expenseNumber || ''}`}
+          subtitle={`Category: ${viewExpense?.category || ''} • Paid to ${viewExpense?.paidTo || ''}`}
+          fields={[
+            { name: 'expenseNumber', label: 'Expense Number', type: 'text' },
+            { name: 'title', label: 'Title / Purpose', type: 'text' },
+            { name: 'category', label: 'Category', type: 'text' },
+            { name: 'amount', label: 'Amount', type: 'money' },
+            { name: 'paidTo', label: 'Paid To', type: 'text' },
+            { name: 'paidFromAccount', label: 'Paid From Account', type: 'text' },
+            { name: 'expenseAccountCode', label: 'Expense Account Code', type: 'text' },
+            { name: 'paymentDate', label: 'Payment Date', type: 'date' },
+            { name: 'approvedBy', label: 'Approved By', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

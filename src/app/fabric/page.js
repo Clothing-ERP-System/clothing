@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Layers,
   Plus,
@@ -21,6 +23,7 @@ import {
   Droplets,
   PackageCheck,
   Package,
+  Eye,
 } from 'lucide-react';
 
 export default function FabricInventoryPage() {
@@ -36,6 +39,9 @@ export default function FabricInventoryPage() {
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
   const [selectedRoll, setSelectedRoll] = useState(null);
   const [editingFabric, setEditingFabric] = useState(null);
+  // View modals
+  const [viewFabric, setViewFabric] = useState(null);
+  const [viewRoll, setViewRoll] = useState(null);
 
   // Add Fabric Variety Form
   const [newFabric, setNewFabric] = useState({
@@ -71,7 +77,7 @@ export default function FabricInventoryPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/fabric');
+      const res = await apiFetch('/api/fabric');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -96,7 +102,7 @@ export default function FabricInventoryPage() {
   const handleCreateFabric = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/fabric', {
+      const res = await apiFetch('/api/fabric', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_FABRIC', ...newFabric }),
@@ -116,7 +122,7 @@ export default function FabricInventoryPage() {
 
   const handleUpdateFabric = async (fabricId, updates) => {
     try {
-      const response = await fetch('/api/fabric', {
+      const response = await apiFetch('/api/fabric', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_FABRIC', fabricId, ...updates }),
@@ -143,7 +149,7 @@ export default function FabricInventoryPage() {
       return;
     }
     try {
-      const res = await fetch('/api/fabric', {
+      const res = await apiFetch('/api/fabric', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'ADD_ROLL', ...newRoll }),
@@ -177,7 +183,7 @@ export default function FabricInventoryPage() {
     if (!selectedRoll) return;
 
     try {
-      const res = await fetch('/api/fabric', {
+      const res = await apiFetch('/api/fabric', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -383,6 +389,13 @@ export default function FabricInventoryPage() {
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setViewRoll(r)}
+                              className="px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3 mr-1" />
+                              View
+                            </button>
                             {r.remainingMeters > 0 && (
                               <button
                                 onClick={() => openIssueModal(r)}
@@ -448,6 +461,14 @@ export default function FabricInventoryPage() {
                       <p className="font-semibold text-slate-700">Available: {f.totalAvailableMeters || 0} Meters</p>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setViewFabric(f)}
+                        className="rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3 h-3 mr-1" />
+                        View
+                      </button>
                       <button
                         type="button"
                         onClick={() => setEditingFabric(f)}
@@ -765,6 +786,54 @@ export default function FabricInventoryPage() {
           title={`Edit Fabric: ${editingFabric?.fabricCode || ''}`}
           fields={FABRIC_EDIT_FIELDS}
           onSave={handleUpdateFabric}
+        />
+
+        {/* View Fabric Variety Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewFabric)}
+          onClose={() => setViewFabric(null)}
+          record={viewFabric}
+          title={`Fabric: ${viewFabric?.fabricCode || ''} — ${viewFabric?.name || ''}`}
+          subtitle={`Type: ${viewFabric?.fabricType || ''} • ${viewFabric?.composition || ''}`}
+          fields={[
+            { name: 'fabricCode', label: 'Fabric Code', type: 'text' },
+            { name: 'name', label: 'Fabric Name', type: 'text' },
+            { name: 'fabricType', label: 'Fabric Type', type: 'text' },
+            { name: 'composition', label: 'Composition', type: 'text' },
+            { name: 'weave', label: 'Weave', type: 'text' },
+            { name: 'widthInches', label: 'Width (Inches)', type: 'text' },
+            { name: 'defaultGsm', label: 'Default GSM', type: 'text' },
+            { name: 'averageCostPerMeter', label: 'Average Cost Per Meter', type: 'money' },
+            { name: 'reorderLevelMeters', label: 'Reorder Level (Meters)', type: 'text' },
+            { name: 'supplierName', label: 'Supplier', type: 'text' },
+            { name: 'totalAvailableMeters', label: 'Total Available Meters', type: 'text' },
+          ]}
+        />
+
+        {/* View Fabric Roll Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewRoll)}
+          onClose={() => setViewRoll(null)}
+          record={viewRoll}
+          title={`Roll: ${viewRoll?.rollNumber || ''}`}
+          subtitle={`Fabric: ${viewRoll?.fabricName || ''} • Barcode: ${viewRoll?.barcode || ''}`}
+          fields={[
+            { name: 'rollNumber', label: 'Roll Number', type: 'text' },
+            { name: 'barcode', label: 'Barcode', type: 'text' },
+            { name: 'fabricName', label: 'Fabric Name', type: 'text' },
+            { name: 'fabricCode', label: 'Fabric Code', type: 'text' },
+            { name: 'lotNumber', label: 'Lot / Batch Number', type: 'text' },
+            { name: 'initialMeters', label: 'Initial Meters', type: 'text' },
+            { name: 'remainingMeters', label: 'Remaining Meters', type: 'text' },
+            { name: 'widthInches', label: 'Width (Inches)', type: 'text' },
+            { name: 'weightKg', label: 'Weight (Kg)', type: 'text' },
+            { name: 'gsm', label: 'GSM', type: 'text' },
+            { name: 'warehouseLocation', label: 'Warehouse Location', type: 'text' },
+            { name: 'status', label: 'Status', type: 'text' },
+            { name: 'inspectionNotes', label: 'Inspection Notes', type: 'text' },
+            { name: 'defectsCount', label: 'Defects Count', type: 'text' },
+            { name: 'grnNumber', label: 'GRN Number', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

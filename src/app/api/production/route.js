@@ -1,14 +1,17 @@
-import { allocateSequence, connectDB } from '@/lib/db.js';
+import { allocateSequence, connectDB, runInTransaction } from '@/lib/db.js';
 import ProductionOrder from '@/models/ProductionOrder.js';
 import DesignArticle from '@/models/Design.js';
 import CuttingOrder from '@/models/CuttingOrder.js';
 import Fabric from '@/models/Fabric.js';
 import TrimItem from '@/models/Trims.js';
+import { AccountHead, JournalEntry } from '@/models/Accounting.js';
 import AuditLog from '@/models/AuditLog.js';
 import { successResponse, errorResponse, fromError } from '@/lib/api-response.js';
 import { applyListQuery, parseListQuery, pickFields, updateRecord } from '@/lib/query.js';
 import { withAuthorization } from '@/lib/authorization.js';
 import { adjustWarehouseStock, getWarehouseStock, recordInventoryMovement } from '@/lib/inventory.js';
+import { postBalancedJournalEntry } from '@/lib/accounting.js';
+import { resolveAndValidateMapping, validateMappingsPresent, getCompanyContext } from '@/lib/accounting-mappings.js';
 
 async function getProduction(request) {
   try {
@@ -24,7 +27,7 @@ async function getProduction(request) {
   }
 }
 
-async function postProduction(request) {
+async function postProduction(request, actor) {
   try {
     await connectDB();
     const body = await request.json();
@@ -220,87 +223,198 @@ async function postProduction(request) {
     }
 
     if (action === 'CONSUME_BOM_MATERIALS') {
-      const order = await ProductionOrder.findByIdForUpdate(body.orderId);
-      if (!order) return errorResponse('Production Order not found', 404);
-      if (order.status !== 'InProduction') {
-        return errorResponse('BOM materials can only be issued to an order in production', 409);
-      }
-      const requestId = String(body.consumptionRequestId || '').trim();
-      if (order.materialsConsumedAt) {
-        if (requestId && requestId === order.materialConsumptionRequestId) {
-          return successResponse({ productionOrder: order }, 'BOM materials were already issued for this request');
+      return await runInTransaction(async () => {
+        const order = await ProductionOrder.findByIdForUpdate(body.orderId);
+        if (!order) return errorResponse('Production Order not found', 404);
+        if (order.status !== 'InProduction') {
+          return errorResponse('BOM materials can only be issued to an order in production', 409);
         }
-        return errorResponse('BOM materials have already been issued for this production order', 409);
-      }
-      const requirements = (order.materialRequirements || []).filter((line) => line.stockItemType === 'Trim');
-      if (!requestId || !requirements.length || !Array.isArray(body.items) ||
-        body.items.length !== requirements.length || !order.warehouseLocation) {
-        return errorResponse('Provide one consumption line for every trim BOM item and a request ID', 400);
-      }
-      const submittedByReference = new Map();
-      for (const submitted of body.items) {
-        const key = `${submitted?.stockItemType}:${submitted?.stockItemId}`;
-        if (submittedByReference.has(key)) return errorResponse('Duplicate BOM consumption references are not allowed', 400);
-        submittedByReference.set(key, submitted);
-      }
-      const normalized = [];
-      const lockedTrims = new Map();
-      for (const requirement of requirements) {
-        const key = `Trim:${requirement.stockItemId}`;
-        const submitted = submittedByReference.get(key);
-        const quantityConsumed = Number(submitted?.quantityConsumed);
-        const wastageQuantity = Number(submitted?.wastageQuantity ?? 0);
-        if (!submitted || !Number.isFinite(quantityConsumed) || quantityConsumed < requirement.requiredQuantity ||
-          !Number.isFinite(wastageQuantity) || wastageQuantity < 0 ||
-          Math.abs(quantityConsumed - requirement.requiredQuantity - wastageQuantity) > 0.000001) {
-          return errorResponse(`Consumption for ${requirement.stockItemCode} must equal required material plus recorded wastage`, 400);
+        const requestId = String(body.consumptionRequestId || '').trim();
+        if (order.materialsConsumedAt) {
+          if (requestId && requestId === order.materialConsumptionRequestId) {
+            return successResponse({ productionOrder: order }, 'BOM materials were already issued for this request');
+          }
+          return errorResponse('BOM materials have already been issued for this production order', 409);
         }
-        const trim = await TrimItem.findByIdForUpdate(requirement.stockItemId);
-        if (!trim) return errorResponse(`BOM stock item ${requirement.stockItemCode} no longer exists`, 409);
-        const available = getWarehouseStock(trim, 'currentStock', order.warehouseLocation);
-        if (!Number.isFinite(available) || available < quantityConsumed) {
-          return errorResponse(`Insufficient or inconsistent stock for ${requirement.stockItemCode} at ${order.warehouseLocation}`, 409);
+        if (!requestId || !Array.isArray(body.items) || body.items.length === 0 || !order.warehouseLocation) {
+          return errorResponse('Provide consumption lines for all BOM items and a request ID', 400);
         }
-        lockedTrims.set(key, trim);
-        normalized.push({
-          stockItemType: 'Trim',
-          stockItemId: trim._id,
-          stockItemCode: trim.trimCode,
-          itemName: trim.name,
-          quantityConsumed,
-          wastageQuantity,
-          requiredQuantity: requirement.requiredQuantity,
-          unit: trim.unit,
+
+        const fabricRequirements = (order.materialRequirements || []).filter((line) => line.stockItemType === 'Fabric');
+        const trimRequirements = (order.materialRequirements || []).filter((line) => line.stockItemType === 'Trim');
+        const allRequirements = [...fabricRequirements, ...trimRequirements];
+
+        const submittedByReference = new Map();
+        for (const submitted of body.items) {
+          const key = `${submitted?.stockItemType}:${submitted?.stockItemId}`;
+          if (submittedByReference.has(key)) return errorResponse('Duplicate BOM consumption references are not allowed', 400);
+          submittedByReference.set(key, submitted);
+        }
+
+        // Validate that every BOM requirement has a matching submission
+        for (const req of allRequirements) {
+          const key = `${req.stockItemType}:${req.stockItemId}`;
+          if (!submittedByReference.has(key)) {
+            return errorResponse(`Missing consumption line for ${req.stockItemCode || req.stockItemId}`, 400);
+          }
+        }
+
+        const lockedItems = new Map();
+        let totalMaterialCost = 0;
+
+        // Process trim requirements: validate, lock, cost, and deduct stock.
+        for (const requirement of trimRequirements) {
+          const key = `Trim:${requirement.stockItemId}`;
+          const submitted = submittedByReference.get(key);
+          const quantityConsumed = Number(submitted?.quantityConsumed);
+          const wastageQuantity = Number(submitted?.wastageQuantity ?? 0);
+          if (!submitted || !Number.isFinite(quantityConsumed) || quantityConsumed < requirement.requiredQuantity ||
+            !Number.isFinite(wastageQuantity) || wastageQuantity < 0 ||
+            Math.abs(quantityConsumed - requirement.requiredQuantity - wastageQuantity) > 0.000001) {
+            return errorResponse(`Consumption for ${requirement.stockItemCode} must equal required material plus recorded wastage`, 400);
+          }
+          const trim = await TrimItem.findByIdForUpdate(requirement.stockItemId);
+          if (!trim) return errorResponse(`BOM stock item ${requirement.stockItemCode} no longer exists`, 409);
+          const available = getWarehouseStock(trim, 'currentStock', order.warehouseLocation);
+          if (!Number.isFinite(available) || available < quantityConsumed) {
+            return errorResponse(`Insufficient or inconsistent stock for ${requirement.stockItemCode} at ${order.warehouseLocation}`, 409);
+          }
+          const unitCost = Number(trim.unitCost || 0);
+          if (!Number.isFinite(unitCost) || unitCost <= 0) {
+            return errorResponse(`Material ${requirement.stockItemCode} has no valid unit cost. Configure inventory valuation before consuming stock.`, 409);
+          }
+          const lineCost = Math.round(quantityConsumed * unitCost * 100) / 100;
+          totalMaterialCost += lineCost;
+          lockedItems.set(key, {
+            ...requirement,
+            item: trim,
+            type: 'Trim',
+            quantityConsumed,
+            wastageQuantity,
+            unitCost,
+            lineCost,
+          });
+        }
+
+        // Process fabric requirements: validate and cost only.
+        // Fabric stock is deducted at cutting-order allocation; production
+        // consumption records the cost without deducting fabric stock again.
+        for (const requirement of fabricRequirements) {
+          const key = `Fabric:${requirement.stockItemId}`;
+          const submitted = submittedByReference.get(key);
+          const quantityConsumed = Number(submitted?.quantityConsumed);
+          const wastageQuantity = Number(submitted?.wastageQuantity ?? 0);
+          if (!submitted || !Number.isFinite(quantityConsumed) || quantityConsumed < requirement.requiredQuantity ||
+            !Number.isFinite(wastageQuantity) || wastageQuantity < 0 ||
+            Math.abs(quantityConsumed - requirement.requiredQuantity - wastageQuantity) > 0.000001) {
+            return errorResponse(`Consumption for ${requirement.stockItemCode} must equal required material plus recorded wastage`, 400);
+          }
+          const fabric = await Fabric.findById(requirement.stockItemId);
+          if (!fabric) return errorResponse(`BOM stock item ${requirement.stockItemCode} no longer exists`, 409);
+          const unitCost = Number(fabric.averageCostPerMeter || 0);
+          if (!Number.isFinite(unitCost) || unitCost <= 0) {
+            return errorResponse(`Material ${requirement.stockItemCode} has no valid unit cost. Configure inventory valuation before consuming stock.`, 409);
+          }
+          const lineCost = Math.round(quantityConsumed * unitCost * 100) / 100;
+          totalMaterialCost += lineCost;
+          lockedItems.set(key, {
+            ...requirement,
+            item: fabric,
+            type: 'Fabric',
+            quantityConsumed,
+            wastageQuantity,
+            unitCost,
+            lineCost,
+          });
+        }
+
+        if (!Number.isFinite(totalMaterialCost) || totalMaterialCost <= 0) {
+          return errorResponse('Total material cost is zero or invalid. Cannot post WIP journal without a valued consumption.');
+        }
+
+        // Deduct trim stock (fabric stock was already deducted at cutting allocation).
+        for (const [key, entry] of lockedItems) {
+          if (entry.type !== 'Trim') continue;
+          const trim = entry.item;
+          if (!adjustWarehouseStock(trim, 'currentStock', order.warehouseLocation, -entry.quantityConsumed)) {
+            return errorResponse(`Stock balance changed for ${entry.stockItemCode}`, 409);
+          }
+          recordInventoryMovement(trim, {
+            type: 'PRODUCTION_MATERIAL_CONSUMPTION',
+            quantity: entry.quantityConsumed,
+            unit: entry.unit,
+            direction: 'OUT',
+            referenceType: 'ProductionOrder',
+            referenceId: order._id,
+            referenceNumber: order.productionOrderNumber,
+            sourceItemId: entry.stockItemCode,
+            warehouseLocation: order.warehouseLocation,
+            notes: `BOM requirement ${entry.requiredQuantity}; wastage ${entry.wastageQuantity}; request ${requestId}`,
+          });
+          await trim.save();
+        }
+
+        order.materialConsumptions = allRequirements.map((req) => {
+          const entry = lockedItems.get(`${req.stockItemType}:${req.stockItemId}`);
+          return {
+            ...entry,
+            consumptionRequestId: requestId,
+            consumedAt: new Date(),
+          };
         });
-      }
-      for (const consumption of normalized) {
-        const trim = lockedTrims.get(`Trim:${consumption.stockItemId}`);
-        if (!adjustWarehouseStock(trim, 'currentStock', order.warehouseLocation, -consumption.quantityConsumed)) {
-          return errorResponse(`Stock balance changed for ${consumption.stockItemCode}`, 409);
-        }
-        recordInventoryMovement(trim, {
-          type: 'PRODUCTION_MATERIAL_CONSUMPTION',
-          quantity: consumption.quantityConsumed,
-          unit: consumption.unit,
-          direction: 'OUT',
-          referenceType: 'ProductionOrder',
-          referenceId: order._id,
+        order.materialsConsumedAt = new Date();
+        order.materialConsumptionRequestId = requestId;
+        // Track accumulated WIP cost on the production order so finished-goods
+        // receipt can credit WIP with the actual accumulated material cost.
+        order.accumulatedWipCost = Number(order.accumulatedWipCost || 0) + totalMaterialCost;
+        await order.save();
+
+        // Resolve company accounting mappings for production WIP/inventory accounts.
+        const prodCompany = await getCompanyContext();
+        const prodMappings = prodCompany && prodCompany.accountingMappings ? prodCompany.accountingMappings : {};
+        const mappingErr = validateMappingsPresent(prodMappings, [
+          'wipAccountCode',
+          'inventoryAccountCode',
+        ], 'production material consumption');
+        if (mappingErr) return errorResponse(mappingErr, 409);
+
+        const wipResult = await resolveAndValidateMapping(prodMappings, 'wipAccountCode', 'Asset');
+        if (wipResult.error) return errorResponse(wipResult.error, 400);
+        const inventoryResult = await resolveAndValidateMapping(prodMappings, 'inventoryAccountCode', 'Asset');
+        if (inventoryResult.error) return errorResponse(inventoryResult.error, 400);
+
+        // Post balanced WIP journal: Dr WIP / Cr Raw Materials. Shares the same
+        // transaction as stock deduction — if journal posting fails, all writes
+        // (stock, production order, journal) roll back together.
+        const consumptionSourceKey = `PROD_MAT_CONSUMPTION:${order.productionOrderNumber}:${requestId}`;
+        const { entry: matJournal } = await postBalancedJournalEntry({
+          sourceKey: consumptionSourceKey,
+          voucherType: 'ProductionMaterialConsumption',
+          narration: `Material consumption for ${order.productionOrderNumber}`,
           referenceNumber: order.productionOrderNumber,
-          sourceItemId: consumption.stockItemCode,
-          warehouseLocation: order.warehouseLocation,
-          notes: `BOM requirement ${consumption.requiredQuantity}; wastage ${consumption.wastageQuantity}; request ${requestId}`,
+          postedBy: actor?.name || '',
+          lines: [
+            {
+              accountCode: wipResult.account.code,
+              accountName: wipResult.account.name,
+              debit: totalMaterialCost,
+              credit: 0,
+              memo: `WIP - material consumption for ${order.productionOrderNumber}`,
+            },
+            {
+              accountCode: inventoryResult.account.code,
+              accountName: inventoryResult.account.name,
+              debit: 0,
+              credit: totalMaterialCost,
+              memo: `Raw materials consumed for ${order.productionOrderNumber}`,
+            },
+          ],
         });
-        await trim.save();
-      }
-      order.materialConsumptions = normalized.map((entry) => ({
-        ...entry,
-        consumptionRequestId: requestId,
-        consumedAt: new Date(),
-      }));
-      order.materialsConsumedAt = new Date();
-      order.materialConsumptionRequestId = requestId;
-      await order.save();
-      return successResponse({ productionOrder: order }, 'BOM materials issued and consumption recorded');
+        order.materialConsumptionJournalId = matJournal._id;
+        await order.save();
+
+        return successResponse({ productionOrder: order }, 'BOM materials issued and consumption recorded');
+      });
     }
 
     if (action === 'COMPLETE_FINISHING') {

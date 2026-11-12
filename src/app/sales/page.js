@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Users2,
   Plus,
@@ -18,6 +20,7 @@ import {
   Sparkles,
   Percent,
   Search,
+  Eye,
 } from 'lucide-react';
 
 export default function SalesCustomersPage() {
@@ -42,6 +45,9 @@ export default function SalesCustomersPage() {
   const salesOrderRequestId = useRef(null);
   const [isReturnOpen, setIsReturnOpen] = useState(false);
   const [returnOrder, setReturnOrder] = useState(null);
+  // View modals
+  const [viewOrder, setViewOrder] = useState(null);
+  const [viewCustomer, setViewCustomer] = useState(null);
   const [returnLines, setReturnLines] = useState([]);
   const [financialAccounts, setFinancialAccounts] = useState([]);
   const [salesReturnsAccountCode, setSalesReturnsAccountCode] = useState('');
@@ -77,8 +83,8 @@ export default function SalesCustomersPage() {
   const fetchData = async () => {
     try {
       const [salesResponse, designResponse] = await Promise.all([
-        fetch('/api/sales'),
-        fetch('/api/design'),
+        apiFetch('/api/sales'),
+        apiFetch('/api/design'),
       ]);
       const [salesResult, designResult] = await Promise.all([
         salesResponse.json(),
@@ -112,7 +118,7 @@ export default function SalesCustomersPage() {
       if (!salesOrderRequestId.current) {
         salesOrderRequestId.current = globalThis.crypto.randomUUID();
       }
-      const res = await fetch('/api/sales', {
+      const res = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -166,7 +172,7 @@ export default function SalesCustomersPage() {
     event.preventDefault();
     if (!returnOrder) return;
     try {
-      const response = await fetch('/api/sales', {
+      const response = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,7 +206,7 @@ export default function SalesCustomersPage() {
   const handleCreateCustomer = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/sales', {
+      const response = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_CUSTOMER', ...newCustomer }),
@@ -230,7 +236,7 @@ export default function SalesCustomersPage() {
 
   const handleUpdateCustomer = async (customerId, updates) => {
     try {
-      const response = await fetch('/api/sales', {
+      const response = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_CUSTOMER', customerId, ...updates }),
@@ -252,7 +258,7 @@ export default function SalesCustomersPage() {
 
   const handleUpdateOrder = async (orderId, updates) => {
     try {
-      const response = await fetch('/api/sales', {
+      const response = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_SALES_ORDER', orderId, ...updates }),
@@ -287,7 +293,7 @@ export default function SalesCustomersPage() {
     if (!selectedOrder) return;
 
     try {
-      const res = await fetch('/api/sales', {
+      const res = await apiFetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -454,6 +460,14 @@ export default function SalesCustomersPage() {
                         <td className="py-3 px-4 text-right">
                           <button
                             type="button"
+                            onClick={() => setViewOrder(order)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => setEditingOrder(order)}
                             className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
                           >
@@ -519,6 +533,14 @@ export default function SalesCustomersPage() {
                     <span className="text-slate-400">Current Receivable:</span>
                     <span className="font-bold text-[#DC2626]">Rs. {c.currentReceivableBalance?.toLocaleString()}</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setViewCustomer(c)}
+                    className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Eye className="w-3 h-3 mr-1" />
+                    View Details
+                  </button>
                   <button
                     type="button"
                     onClick={() => setEditingCustomer(c)}
@@ -941,6 +963,80 @@ export default function SalesCustomersPage() {
           title={`Edit Sales Order: ${editingOrder?.orderNumber || ''}`}
           fields={SALES_ORDER_EDIT_FIELDS}
           onSave={handleUpdateOrder}
+        />
+
+        {/* View Sales Order Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewOrder)}
+          onClose={() => setViewOrder(null)}
+          record={viewOrder}
+          title={`Sales Order: ${viewOrder?.orderNumber || ''}`}
+          subtitle={`Customer: ${viewOrder?.customerName || ''} • Tier: ${viewOrder?.customerTier || ''}`}
+          fields={[
+            { name: 'orderNumber', label: 'Order Number', type: 'text' },
+            { name: 'invoiceNumber', label: 'Invoice Number', type: 'text' },
+            { name: 'customerName', label: 'Customer', type: 'text' },
+            { name: 'customerTier', label: 'Customer Tier', type: 'text' },
+            { name: 'orderDate', label: 'Order Date', type: 'date' },
+            { name: 'status', label: 'Status', type: 'text' },
+            { name: 'paymentStatus', label: 'Payment Status', type: 'text' },
+            { name: 'subtotal', label: 'Subtotal', type: 'money' },
+            { name: 'totalDiscount', label: 'Total Discount', type: 'money' },
+            { name: 'shippingFee', label: 'Shipping Fee', type: 'money' },
+            { name: 'grandTotal', label: 'Grand Total', type: 'money' },
+            { name: 'amountPaid', label: 'Amount Paid', type: 'money' },
+            { name: 'salesRep', label: 'Sales Representative', type: 'text' },
+            { name: 'notes', label: 'Notes', type: 'text' },
+            { name: 'warehouseLocation', label: 'Warehouse Location', type: 'text' },
+            {
+              name: 'items',
+              label: 'Order Items',
+              type: 'array',
+              itemFields: [
+                { name: 'articleCode', label: 'Article Code' },
+                { name: 'title', label: 'Title' },
+                { name: 'size', label: 'Size' },
+                { name: 'unitRetailPrice', label: 'Unit Price', type: 'money' },
+                { name: 'quantity', label: 'Quantity', type: 'text' },
+                { name: 'discountPercentApplied', label: 'Discount %', type: 'text' },
+                { name: 'discountAmount', label: 'Discount Amount', type: 'money' },
+                { name: 'netPrice', label: 'Net Price', type: 'money' },
+                { name: 'lineTotal', label: 'Line Total', type: 'money' },
+              ],
+            },
+            { name: 'returns', label: 'Sales Returns', type: 'array', itemFields: [
+              { name: 'returnRequestId', label: 'Return Request ID' },
+              { name: 'returnValue', label: 'Return Value', type: 'money' },
+              { name: 'receivableCredit', label: 'Receivable Credit', type: 'money' },
+              { name: 'refundAmount', label: 'Refund Amount', type: 'money' },
+              { name: 'returnedAt', label: 'Returned At', type: 'date' },
+              { name: 'reason', label: 'Reason' },
+            ] },
+          ]}
+        />
+
+        {/* View Customer Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewCustomer)}
+          onClose={() => setViewCustomer(null)}
+          record={viewCustomer}
+          title={`Customer: ${viewCustomer?.name || ''}`}
+          subtitle={`Code: ${viewCustomer?.customerCode || ''} • Tier: ${viewCustomer?.tier || ''}`}
+          fields={[
+            { name: 'customerCode', label: 'Customer Code', type: 'text' },
+            { name: 'name', label: 'Customer Name', type: 'text' },
+            { name: 'businessName', label: 'Business Name', type: 'text' },
+            { name: 'phone', label: 'Phone', type: 'text' },
+            { name: 'email', label: 'Email', type: 'text' },
+            { name: 'address', label: 'Address', type: 'text' },
+            { name: 'city', label: 'City', type: 'text' },
+            { name: 'tier', label: 'Customer Tier', type: 'text' },
+            { name: 'defaultTierDiscountPercent', label: 'Default Discount (%)', type: 'text' },
+            { name: 'specialDiscountOverride', label: 'Special Discount Override (%)', type: 'text' },
+            { name: 'creditLimitPKR', label: 'Credit Limit (PKR)', type: 'money' },
+            { name: 'currentReceivableBalance', label: 'Current Receivable Balance', type: 'money' },
+            { name: 'paymentTerms', label: 'Payment Terms', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

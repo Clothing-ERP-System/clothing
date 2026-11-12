@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Droplets,
   Plus,
@@ -17,6 +19,7 @@ import {
   TrendingUp,
   AlertCircle,
   Layers,
+  Eye,
 } from 'lucide-react';
 
 export default function DyeingProcessingPage() {
@@ -27,6 +30,8 @@ export default function DyeingProcessingPage() {
   const [outputMetersByJob, setOutputMetersByJob] = useState({});
   const [outputFabricByJob, setOutputFabricByJob] = useState({});
   const [editingRecipe, setEditingRecipe] = useState(null);
+  const [viewJob, setViewJob] = useState(null);
+  const [viewRecipe, setViewRecipe] = useState(null);
 
   // Modals
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
@@ -53,7 +58,7 @@ export default function DyeingProcessingPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/dyeing');
+      const res = await apiFetch('/api/dyeing');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -75,7 +80,7 @@ export default function DyeingProcessingPage() {
   const handleCreateJob = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/dyeing', {
+      const res = await apiFetch('/api/dyeing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,7 +108,7 @@ export default function DyeingProcessingPage() {
   const handleCreateRecipe = async (event) => {
     event.preventDefault();
     try {
-      const response = await fetch('/api/dyeing', {
+      const response = await apiFetch('/api/dyeing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_RECIPE', ...newRecipe }),
@@ -133,7 +138,7 @@ export default function DyeingProcessingPage() {
 
   const handleUpdateJobStatus = async (jobCardId, status, labDipApproved, outputMeters, outputFabricId) => {
     try {
-      const res = await fetch('/api/dyeing', {
+      const res = await apiFetch('/api/dyeing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,7 +165,7 @@ export default function DyeingProcessingPage() {
 
   const handleUpdateRecipe = async (recipeId, updates) => {
     try {
-      const response = await fetch('/api/dyeing', {
+      const response = await apiFetch('/api/dyeing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_RECIPE', recipeId, ...updates }),
@@ -303,6 +308,13 @@ export default function DyeingProcessingPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setViewJob(job)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors"
+                    >
+                      <Eye className="w-3 h-3 mr-1" />
+                      View
+                    </button>
                     {!job.labDipApproved && (
                       <button
                         onClick={() => handleUpdateJobStatus(job._id, job.status, true, null)}
@@ -405,6 +417,14 @@ export default function DyeingProcessingPage() {
                     <span className="font-bold">{rcp.processTimeMinutes} mins</span>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setViewRecipe(rcp)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  View Details
+                </button>
                 <button
                   type="button"
                   onClick={() => setEditingRecipe(rcp)}
@@ -618,6 +638,79 @@ export default function DyeingProcessingPage() {
           title={`Edit Recipe: ${editingRecipe?.recipeCode || ''}`}
           fields={DYE_RECIPE_EDIT_FIELDS}
           onSave={handleUpdateRecipe}
+        />
+
+        {/* View Dye Job Card Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewJob)}
+          onClose={() => setViewJob(null)}
+          record={viewJob}
+          title={`Job Card: ${viewJob?.jobCardNumber || ''}`}
+          subtitle={`Shade: ${viewJob?.targetShade || ''} • Status: ${viewJob?.status || ''}`}
+          maxWidth="max-w-3xl"
+          fields={[
+            { name: 'jobCardNumber', label: 'Job Card Number', type: 'text' },
+            { name: 'targetShade', label: 'Target Shade', type: 'text' },
+            { name: 'recipeId', label: 'Recipe ID', type: 'text' },
+            { name: 'fabricType', label: 'Fabric Type', type: 'text' },
+            { name: 'issuedRollNumbers', label: 'Issued Roll Numbers', type: 'text' },
+            { name: 'inputMeters', label: 'Input Length (m)', type: 'text' },
+            { name: 'inputWeightKg', label: 'Input Weight (kg)', type: 'text' },
+            { name: 'vatMachineNumber', label: 'Vat / Jet Machine', type: 'text' },
+            { name: 'operatorName', label: 'Operator', type: 'text' },
+            { name: 'status', label: 'Job Status', type: 'text' },
+            { name: 'labDipApproved', label: 'Lab Dip Approved', type: 'boolean' },
+            { name: 'outputMeters', label: 'Output Length (m)', type: 'text' },
+            { name: 'wastageMeters', label: 'Wastage (m)', type: 'text' },
+            { name: 'shrinkagePercent', label: 'Shrinkage (%)', type: 'text' },
+            { name: 'outputWeightKg', label: 'Output Weight (kg)', type: 'text' },
+            { name: 'outputFabricId', label: 'Output Fabric ID', type: 'text' },
+            { name: 'outputFabricCode', label: 'Output Fabric Code', type: 'text' },
+            { name: 'outputRollNumber', label: 'Output Roll Number', type: 'text' },
+            { name: 'outputWarehouseLocation', label: 'Output Warehouse Location', type: 'text' },
+            { name: 'completionDate', label: 'Completion Date', type: 'date' },
+            { name: 'chemicalCostTotal', label: 'Chemical Cost Total', type: 'money' },
+            { name: 'laborAndSteamCost', label: 'Labor & Steam Cost', type: 'money' },
+            { name: 'totalDyeingCost', label: 'Total Dyeing Cost', type: 'money' },
+            {
+              name: 'fabricAllocations',
+              label: 'Fabric Allocations',
+              type: 'array',
+              itemFields: [
+                { name: 'rollNumber', label: 'Roll Number' },
+                { name: 'meters', label: 'Meters', type: 'text' },
+              ],
+            },
+          ]}
+        />
+
+        {/* View Dye Recipe Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewRecipe)}
+          onClose={() => setViewRecipe(null)}
+          record={viewRecipe}
+          title={`Recipe: ${viewRecipe?.recipeCode || ''} — ${viewRecipe?.shadeName || ''}`}
+          subtitle={`Pantone: ${viewRecipe?.pantoneCode || ''} • Fabric: ${viewRecipe?.fabricCompatibility || ''}`}
+          maxWidth="max-w-3xl"
+          fields={[
+            { name: 'recipeCode', label: 'Recipe Code', type: 'text' },
+            { name: 'shadeName', label: 'Shade Name', type: 'text' },
+            { name: 'pantoneCode', label: 'Pantone Code', type: 'text' },
+            { name: 'fabricCompatibility', label: 'Fabric Compatibility', type: 'text' },
+            { name: 'liquorRatio', label: 'Liquor Ratio', type: 'text' },
+            { name: 'temperatureCelsius', label: 'Temperature (°C)', type: 'text' },
+            { name: 'processTimeMinutes', label: 'Process Time (minutes)', type: 'text' },
+            { name: 'approvedBy', label: 'Approved By', type: 'text' },
+            {
+              name: 'ingredients',
+              label: 'Chemical Ingredients',
+              type: 'array',
+              itemFields: [
+                { name: 'chemicalName', label: 'Chemical Name' },
+                { name: 'ratioGramsPerKg', label: 'Ratio (g/kg)', type: 'text' },
+              ],
+            },
+          ]}
         />
       </div>
     </Layout>

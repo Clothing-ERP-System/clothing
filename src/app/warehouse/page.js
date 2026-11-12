@@ -4,8 +4,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Warehouse,
   Plus,
@@ -17,6 +19,7 @@ import {
   Package,
   Layers,
   MapPin,
+  Eye,
 } from 'lucide-react';
 
 export default function WarehouseLogisticsPage() {
@@ -27,11 +30,14 @@ export default function WarehouseLogisticsPage() {
   const [isNewTransferOpen, setIsNewTransferOpen] = useState(false);
   const [confirmUnlocatedStockLocation, setConfirmUnlocatedStockLocation] = useState(false);
   const transferRequestId = useRef(null);
+  const [viewTransfer, setViewTransfer] = useState(null);
 
   // New Transfer Form
   const [newTransfer, setNewTransfer] = useState({
     sourceWarehouse: '',
     destinationWarehouse: '',
+    sourceLocation: { zone: '', aisle: '', rack: '', shelf: '', bin: '' },
+    destinationLocation: { zone: '', aisle: '', rack: '', shelf: '', bin: '' },
     vehicleNumber: '',
     driverName: '',
     driverPhone: '',
@@ -42,7 +48,7 @@ export default function WarehouseLogisticsPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/warehouse');
+      const res = await apiFetch('/api/warehouse');
       const json = await res.json();
       if (json.success) {
         setTransfers(json.data.transfers || []);
@@ -62,7 +68,7 @@ export default function WarehouseLogisticsPage() {
   const handleCreateTransfer = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/warehouse', {
+      const res = await apiFetch('/api/warehouse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -115,7 +121,7 @@ export default function WarehouseLogisticsPage() {
 
   const handleConfirmReceipt = async (transferId) => {
     try {
-      const res = await fetch('/api/warehouse', {
+      const res = await apiFetch('/api/warehouse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -217,6 +223,13 @@ export default function WarehouseLogisticsPage() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setViewTransfer(t)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
                           {t.status !== 'ReceivedAndVerified' && (
                             <button
                               onClick={() => handleConfirmReceipt(t._id)}
@@ -283,6 +296,117 @@ export default function WarehouseLogisticsPage() {
                   placeholder="Destination warehouse"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 />
+              </div>
+            </div>
+
+            {/* Location Hierarchy */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Storage Location Hierarchy (Zone → Aisle → Rack → Shelf → Bin)
+                </label>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Source Zone</label>
+                  <input
+                    type="text"
+                    value={newTransfer.sourceLocation.zone}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, sourceLocation: { ...newTransfer.sourceLocation, zone: e.target.value } })}
+                    placeholder="Zone"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Source Aisle</label>
+                  <input
+                    type="text"
+                    value={newTransfer.sourceLocation.aisle}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, sourceLocation: { ...newTransfer.sourceLocation, aisle: e.target.value } })}
+                    placeholder="Aisle"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Source Rack</label>
+                  <input
+                    type="text"
+                    value={newTransfer.sourceLocation.rack}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, sourceLocation: { ...newTransfer.sourceLocation, rack: e.target.value } })}
+                    placeholder="Rack"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Source Shelf</label>
+                  <input
+                    type="text"
+                    value={newTransfer.sourceLocation.shelf}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, sourceLocation: { ...newTransfer.sourceLocation, shelf: e.target.value } })}
+                    placeholder="Shelf"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Source Bin</label>
+                  <input
+                    type="text"
+                    value={newTransfer.sourceLocation.bin}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, sourceLocation: { ...newTransfer.sourceLocation, bin: e.target.value } })}
+                    placeholder="Bin"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Dest Zone</label>
+                  <input
+                    type="text"
+                    value={newTransfer.destinationLocation.zone}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, destinationLocation: { ...newTransfer.destinationLocation, zone: e.target.value } })}
+                    placeholder="Zone"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Dest Aisle</label>
+                  <input
+                    type="text"
+                    value={newTransfer.destinationLocation.aisle}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, destinationLocation: { ...newTransfer.destinationLocation, aisle: e.target.value } })}
+                    placeholder="Aisle"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Dest Rack</label>
+                  <input
+                    type="text"
+                    value={newTransfer.destinationLocation.rack}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, destinationLocation: { ...newTransfer.destinationLocation, rack: e.target.value } })}
+                    placeholder="Rack"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Dest Shelf</label>
+                  <input
+                    type="text"
+                    value={newTransfer.destinationLocation.shelf}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, destinationLocation: { ...newTransfer.destinationLocation, shelf: e.target.value } })}
+                    placeholder="Shelf"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">Dest Bin</label>
+                  <input
+                    type="text"
+                    value={newTransfer.destinationLocation.bin}
+                    onChange={(e) => setNewTransfer({ ...newTransfer, destinationLocation: { ...newTransfer.destinationLocation, bin: e.target.value } })}
+                    placeholder="Bin"
+                    className="w-full px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
               </div>
             </div>
 
@@ -386,6 +510,43 @@ export default function WarehouseLogisticsPage() {
             </div>
           </form>
         </Modal>
+        {/* View Warehouse Transfer Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewTransfer)}
+          onClose={() => setViewTransfer(null)}
+          record={viewTransfer}
+          title={`Transfer: ${viewTransfer?.transferNumber || ''}`}
+          subtitle={`Challan: ${viewTransfer?.challanNumber || ''} • ${viewTransfer?.sourceWarehouse || ''} → ${viewTransfer?.destinationWarehouse || ''}`}
+          fields={[
+            { name: 'transferNumber', label: 'Transfer Number', type: 'text' },
+            { name: 'challanNumber', label: 'Delivery Challan #', type: 'text' },
+            { name: 'transferRequestId', label: 'Transfer Request ID', type: 'text' },
+            { name: 'sourceWarehouse', label: 'Source Warehouse', type: 'text' },
+            { name: 'destinationWarehouse', label: 'Destination Warehouse', type: 'text' },
+            { name: 'vehicleNumber', label: 'Vehicle / Reg #', type: 'text' },
+            { name: 'driverName', label: 'Driver Name', type: 'text' },
+            { name: 'driverPhone', label: 'Driver Phone', type: 'text' },
+            { name: 'dispatchedBy', label: 'Dispatched By', type: 'text' },
+            { name: 'dispatchedDate', label: 'Dispatched Date', type: 'date' },
+            { name: 'status', label: 'Transfer Status', type: 'text' },
+            { name: 'receivedBy', label: 'Received By', type: 'text' },
+            { name: 'receivedDate', label: 'Received Date', type: 'date' },
+            { name: 'notes', label: 'Notes', type: 'text' },
+            {
+              name: 'items',
+              label: 'Transferred Items',
+              type: 'array',
+              itemFields: [
+                { name: 'stockItemType', label: 'Item Type' },
+                { name: 'stockItemCode', label: 'Item Code' },
+                { name: 'itemDescription', label: 'Description' },
+                { name: 'rollNumber', label: 'Roll #', type: 'text' },
+                { name: 'quantity', label: 'Quantity', type: 'text' },
+                { name: 'unit', label: 'Unit' },
+              ],
+            },
+          ]}
+        />
       </div>
     </Layout>
   );

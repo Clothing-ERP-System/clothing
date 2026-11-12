@@ -1,15 +1,18 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import RecordAttachments from '@/components/RecordAttachments';
+import RecordViewModal from '@/components/RecordViewModal';
 import PurchaseOrderApproval from '@/components/PurchaseOrderApproval';
 import GRNInspectionModal from '@/components/GRNInspectionModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   ShoppingBag,
   Plus,
@@ -23,6 +26,9 @@ import {
   AlertCircle,
   PlusCircle,
   Trash2,
+  AlertTriangle,
+  RotateCcw,
+  Eye,
 } from 'lucide-react';
 
 export default function ProcurementPage() {
@@ -43,6 +49,9 @@ export default function ProcurementPage() {
   const [editingSupplier, setEditingSupplier] = useState(null);
   const [attachmentSupplier, setAttachmentSupplier] = useState(null);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState(null);
+  // View modals
+  const [viewPO, setViewPO] = useState(null);
+  const [viewSupplier, setViewSupplier] = useState(null);
   const supplierPaymentRequestId = useRef(null);
 
   // New PO Form
@@ -83,7 +92,7 @@ export default function ProcurementPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/procurement');
+      const res = await apiFetch('/api/procurement');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -123,7 +132,7 @@ export default function ProcurementPage() {
   const handleCreatePO = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/procurement', {
+      const res = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_PO', ...newPO }),
@@ -144,7 +153,7 @@ export default function ProcurementPage() {
   const handleCreateSupplier = async (event) => {
     event.preventDefault();
     try {
-      const response = await fetch('/api/procurement', {
+      const response = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_SUPPLIER', ...newSupplier }),
@@ -173,7 +182,7 @@ export default function ProcurementPage() {
 
   const handleUpdateSupplier = async (supplierId, updates) => {
     try {
-      const response = await fetch('/api/procurement', {
+      const response = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_SUPPLIER', supplierId, ...updates }),
@@ -195,7 +204,7 @@ export default function ProcurementPage() {
 
   const handleUpdatePurchaseOrder = async (poId, updates) => {
     try {
-      const response = await fetch('/api/procurement', {
+      const response = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_PO', poId, ...updates }),
@@ -238,7 +247,7 @@ export default function ProcurementPage() {
   const handleProcessGRN = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/procurement', {
+      const res = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -292,7 +301,7 @@ export default function ProcurementPage() {
     event.preventDefault();
     if (!selectedSupplier) return;
     try {
-      const response = await fetch('/api/procurement', {
+      const response = await apiFetch('/api/procurement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -392,6 +401,22 @@ export default function ProcurementPage() {
             <Building className="w-4 h-4" />
             <span>Approved Suppliers ({suppliers.length})</span>
           </button>
+
+          <Link
+            href="/procurement/stock-alerts"
+            className="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-[#4F46E5] transition-colors flex items-center gap-1.5"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+            <span>Stock Alert List</span>
+          </Link>
+
+          <Link
+            href="/procurement/returns"
+            className="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-[#4F46E5] transition-colors flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-4 h-4 text-teal-500" />
+            <span>Purchase Return List</span>
+          </Link>
         </div>
 
         {/* Tab 1: Purchase Orders */}
@@ -443,6 +468,14 @@ export default function ProcurementPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setViewPO(po)}
+                            className="inline-flex items-center gap-1 mr-2 px-2.5 py-1 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
                           {(po.status === 'PendingApproval' || po.approvalRequestId) && (
                             <button
                               type="button"
@@ -544,6 +577,14 @@ export default function ProcurementPage() {
                     Record Supplier Payment
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setViewSupplier(sup)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  View Details
+                </button>
                 <button
                   type="button"
                   onClick={() => setEditingSupplier(sup)}
@@ -1085,6 +1126,65 @@ export default function ProcurementPage() {
           title={`Edit Purchase Order: ${editingPurchaseOrder?.poNumber || ''}`}
           fields={PURCHASE_ORDER_EDIT_FIELDS}
           onSave={handleUpdatePurchaseOrder}
+        />
+
+        {/* View Purchase Order Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewPO)}
+          onClose={() => setViewPO(null)}
+          record={viewPO}
+          title={`Purchase Order: ${viewPO?.poNumber || ''}`}
+          subtitle={`Supplier: ${viewPO?.supplierName || ''} • Status: ${viewPO?.status || ''}`}
+          fields={[
+            { name: 'poNumber', label: 'PO Number', type: 'text' },
+            { name: 'supplierName', label: 'Supplier', type: 'text' },
+            { name: 'status', label: 'Status', type: 'text' },
+            { name: 'subtotal', label: 'Subtotal', type: 'money' },
+            { name: 'grandTotal', label: 'Grand Total', type: 'money' },
+            { name: 'paymentTerms', label: 'Payment Terms', type: 'text' },
+            { name: 'expectedDeliveryDate', label: 'Expected Delivery', type: 'date' },
+            { name: 'notes', label: 'Notes', type: 'text' },
+            {
+              name: 'items',
+              label: 'Order Items',
+              type: 'array',
+              itemFields: [
+                { name: 'stockItemCode', label: 'Item Code' },
+                { name: 'description', label: 'Description' },
+                { name: 'unit', label: 'Unit' },
+                { name: 'orderedQty', label: 'Ordered Qty', type: 'text' },
+                { name: 'receivedQty', label: 'Received Qty', type: 'text' },
+                { name: 'unitPrice', label: 'Unit Price', type: 'money' },
+                { name: 'totalPrice', label: 'Total Price', type: 'money' },
+              ],
+            },
+            { name: 'grns', label: 'Goods Receipt Notes', type: 'array', itemFields: [
+              { name: 'grnNumber', label: 'GRN Number' },
+              { name: 'challanNumber', label: 'Challan Number' },
+              { name: 'receivedValue', label: 'Received Value', type: 'money' },
+              { name: 'status', label: 'Status' },
+            ] },
+          ]}
+        />
+
+        {/* View Supplier Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewSupplier)}
+          onClose={() => setViewSupplier(null)}
+          record={viewSupplier}
+          title={`Supplier: ${viewSupplier?.name || ''}`}
+          subtitle={`Code: ${viewSupplier?.supplierCode || ''} • Category: ${viewSupplier?.category || ''}`}
+          fields={[
+            { name: 'supplierCode', label: 'Supplier Code', type: 'text' },
+            { name: 'name', label: 'Supplier Name', type: 'text' },
+            { name: 'phone', label: 'Phone', type: 'text' },
+            { name: 'email', label: 'Email', type: 'text' },
+            { name: 'address', label: 'Address', type: 'text' },
+            { name: 'city', label: 'City', type: 'text' },
+            { name: 'category', label: 'Category', type: 'text' },
+            { name: 'creditPeriodDays', label: 'Credit Period (Days)', type: 'text' },
+            { name: 'currentBalance', label: 'Current Payable Balance', type: 'money' },
+          ]}
         />
       </div>
     </Layout>

@@ -7,6 +7,7 @@ import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import { BUILT_IN_ROLES } from '@/lib/role-definitions.js';
 import ApprovalMatrix from '@/components/ApprovalMatrix';
 import {
@@ -22,11 +23,12 @@ import {
   MapPin,
   Tag,
   Scale,
+  Link,
 } from 'lucide-react';
 
 export default function AdministrationPage() {
   const { addToast } = useAuth();
-  const [activeTab, setActiveTab] = useState('company'); // 'company', 'users', 'master', 'audit'
+  const [activeTab, setActiveTab] = useState('company'); // 'company', 'users', 'master', 'audit', 'mappings'
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -34,6 +36,10 @@ export default function AdministrationPage() {
   const [editingCompany, setEditingCompany] = useState(null);
   const [resetPasswordUser, setResetPasswordUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
+
+  // Accounting mappings state
+  const [mappingsDraft, setMappingsDraft] = useState({});
+  const [mappingsSaving, setMappingsSaving] = useState(false);
 
   // New user form state
   const [newUser, setNewUser] = useState({
@@ -48,7 +54,7 @@ export default function AdministrationPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/administration');
+      const res = await apiFetch('/api/administration');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -67,7 +73,7 @@ export default function AdministrationPage() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/administration', {
+      const res = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_USER', ...newUser }),
@@ -98,7 +104,7 @@ export default function AdministrationPage() {
     e.preventDefault();
     if (!resetPasswordUser || !newPassword) return;
     try {
-      const res = await fetch('/api/administration', {
+      const res = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,7 +128,7 @@ export default function AdministrationPage() {
 
   const handleUpdateUser = async (userId, updates) => {
     try {
-      const response = await fetch('/api/administration', {
+      const response = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_USER', userId, ...updates }),
@@ -144,7 +150,7 @@ export default function AdministrationPage() {
 
   const handleUpdateCompany = async (_companyId, updates) => {
     try {
-      const response = await fetch('/api/administration', {
+      const response = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -175,6 +181,37 @@ export default function AdministrationPage() {
   const masterData = data?.masterData || {};
   const auditLogs = data?.auditLogs || [];
   const userRoleOptions = [...new Set([...BUILT_IN_ROLES, ...roles.map((role) => role.name)])];
+
+  // Initialize mappings draft when data loads
+  const financialAccounts = data?.financialAccounts || [];
+
+  const handleSaveMappings = async (e) => {
+    e.preventDefault();
+    setMappingsSaving(true);
+    try {
+      const response = await apiFetch('/api/administration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'UPDATE_COMPANY',
+          accountingMappings: mappingsDraft,
+          branches: company.branches || [],
+          locations: company.locations || [],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        addToast(result.message || 'Failed to save accounting mappings', 'error');
+      } else {
+        addToast('Accounting mappings saved successfully', 'success');
+        await fetchData();
+      }
+    } catch {
+      addToast('Error saving accounting mappings', 'error');
+    } finally {
+      setMappingsSaving(false);
+    }
+  };
 
   return (
     <Layout>
@@ -266,6 +303,20 @@ export default function AdministrationPage() {
           >
             <CheckCircle className="w-4 h-4" />
             <span>Approval Matrix</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('mappings');
+              setMappingsDraft({ ...(company.accountingMappings || {}) });
+            }}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === 'mappings'
+                ? 'border-[#4F46E5] text-[#4F46E5]'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Link className="w-4 h-4" />
+            <span>Accounting Mappings</span>
           </button>
         </div>
 
@@ -568,6 +619,231 @@ export default function AdministrationPage() {
 
         {activeTab === 'approvals' && (
           <ApprovalMatrix roles={roles} users={users} />
+        )}
+
+        {/* Tab: Accounting Mappings */}
+        {activeTab === 'mappings' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Link className="w-4 h-4 text-[#4F46E5]" />
+                  <span>General Ledger & Accounting Account Mappings</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Connect operational events (procurement, warehouse adjustments, sales, payroll, asset disposal) to Chart of Accounts heads.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveMappings}
+                disabled={mappingsSaving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm disabled:opacity-50"
+              >
+                <span>{mappingsSaving ? 'Saving Mappings...' : 'Save All Mappings'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Group 1: Inventory & Procurement */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Inventory, WIP & Procurement</span>
+                </h4>
+                {[
+                  { key: 'inventoryAccountCode', label: 'Inventory / Stock Asset', type: 'Asset', desc: 'Raw material & finished goods valuation' },
+                  { key: 'wipAccountCode', label: 'Work-in-Progress (WIP)', type: 'Asset', desc: 'Material & production costs in process' },
+                  { key: 'grniAccountCode', label: 'Goods Received Not Invoiced (GRNI)', type: 'Liability', desc: 'Clearing account for unbilled receipts' },
+                  { key: 'payableAccountCode', label: 'Accounts Payable', type: 'Liability', desc: 'Supplier dues from confirmed invoices' },
+                  { key: 'cogsAccountCode', label: 'Cost of Goods Sold (COGS)', type: 'CostOfGoodsSold', desc: 'Cost of garments dispatched or sold' },
+                  { key: 'scrapWriteOffAccountCode', label: 'Scrap & Write-Off', type: 'OperatingExpense', desc: 'Loss on defective/scrapped garments' },
+                ].map((item) => (
+                  <div key={item.key} className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        mappingsDraft[item.key] ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {mappingsDraft[item.key] ? 'Mapped' : 'Required'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mb-1.5">{item.desc} (Expected: {item.type})</p>
+                    <select
+                      value={mappingsDraft[item.key] || ''}
+                      onChange={(e) => setMappingsDraft({ ...mappingsDraft, [item.key]: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">-- Select GL Account ({item.type}) --</option>
+                      {financialAccounts.map((acc) => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} — {acc.name} ({acc.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {/* Group 2: Sales & Revenue */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Sales, Revenue & Receivables</span>
+                </h4>
+                {[
+                  { key: 'salesRevenueAccountCode', label: 'Sales Revenue', type: 'Revenue', desc: 'Gross revenue from wholesale & POS sales' },
+                  { key: 'salesReceivableAccountCode', label: 'Accounts Receivable', type: 'Asset', desc: 'Customer balances due from invoices' },
+                  { key: 'salesReturnsAccountCode', label: 'Sales Returns & Allowances', type: 'Revenue', desc: 'Returns and order cancellation reversals' },
+                ].map((item) => (
+                  <div key={item.key} className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        mappingsDraft[item.key] ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {mappingsDraft[item.key] ? 'Mapped' : 'Required'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mb-1.5">{item.desc} (Expected: {item.type})</p>
+                    <select
+                      value={mappingsDraft[item.key] || ''}
+                      onChange={(e) => setMappingsDraft({ ...mappingsDraft, [item.key]: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">-- Select GL Account ({item.type}) --</option>
+                      {financialAccounts.map((acc) => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} — {acc.name} ({acc.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+
+                {/* Group 3: Cash, Banking & Tax */}
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider pt-3 flex items-center gap-1.5">
+                  <Scale className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Cash, Banking & Taxation</span>
+                </h4>
+                {[
+                  { key: 'cashAccountCode', label: 'Cash in Hand', type: 'Asset', desc: 'Physical cash & POS register collections' },
+                  { key: 'bankAccountCode', label: 'Bank Account', type: 'Asset', desc: 'Primary operating bank account' },
+                  { key: 'inputTaxAccountCode', label: 'Input Sales Tax', type: 'Asset', desc: 'Sales tax paid on procurement' },
+                ].map((item) => (
+                  <div key={item.key} className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        mappingsDraft[item.key] ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {mappingsDraft[item.key] ? 'Mapped' : 'Required'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mb-1.5">{item.desc} (Expected: {item.type})</p>
+                    <select
+                      value={mappingsDraft[item.key] || ''}
+                      onChange={(e) => setMappingsDraft({ ...mappingsDraft, [item.key]: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">-- Select GL Account ({item.type}) --</option>
+                      {financialAccounts.map((acc) => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} — {acc.name} ({acc.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {/* Group 4: Payroll & HR */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Payroll & Operating Expenses</span>
+                </h4>
+                {[
+                  { key: 'payrollExpenseAccountCode', label: 'Salaries & Wages Expense', type: 'OperatingExpense', desc: 'Gross monthly payroll & piece-rate expense' },
+                  { key: 'payrollPayableAccountCode', label: 'Payroll Payable', type: 'Liability', desc: 'Accrued unpaid staff salaries' },
+                  { key: 'expenseAccountCode', label: 'General Operating Expense', type: 'OperatingExpense', desc: 'Inventory adjustments & factory overheads' },
+                  { key: 'openingBalanceEquityAccountCode', label: 'Opening Balance Equity', type: 'Equity', desc: 'System initialization balancing equity' },
+                ].map((item) => (
+                  <div key={item.key} className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        mappingsDraft[item.key] ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {mappingsDraft[item.key] ? 'Mapped' : 'Required'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mb-1.5">{item.desc} (Expected: {item.type})</p>
+                    <select
+                      value={mappingsDraft[item.key] || ''}
+                      onChange={(e) => setMappingsDraft({ ...mappingsDraft, [item.key]: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">-- Select GL Account ({item.type}) --</option>
+                      {financialAccounts.map((acc) => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} — {acc.name} ({acc.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {/* Group 5: Fixed Assets & Depreciation */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Fixed Assets & Depreciation</span>
+                </h4>
+                {[
+                  { key: 'fixedAssetAccountCode', label: 'Fixed Assets Account', type: 'Asset', desc: 'Stitching machines, vehicles & factory equipment' },
+                  { key: 'accumulatedDepreciationAccountCode', label: 'Accumulated Depreciation', type: 'Asset', desc: 'Contra-asset account tracking cumulative depreciation' },
+                  { key: 'depreciationExpenseAccountCode', label: 'Depreciation Expense', type: 'OperatingExpense', desc: 'Periodic depreciation charge to P&L' },
+                ].map((item) => (
+                  <div key={item.key} className="p-2.5 bg-white rounded-lg border border-slate-200">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        mappingsDraft[item.key] ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {mappingsDraft[item.key] ? 'Mapped' : 'Required'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mb-1.5">{item.desc} (Expected: {item.type})</p>
+                    <select
+                      value={mappingsDraft[item.key] || ''}
+                      onChange={(e) => setMappingsDraft({ ...mappingsDraft, [item.key]: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">-- Select GL Account ({item.type}) --</option>
+                      {financialAccounts.map((acc) => (
+                        <option key={acc.code} value={acc.code}>
+                          {acc.code} — {acc.name} ({acc.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveMappings}
+                disabled={mappingsSaving}
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 text-xs font-bold rounded-lg bg-[#4F46E5] text-white hover:bg-[#4338CA] transition-colors shadow-sm disabled:opacity-50"
+              >
+                <span>{mappingsSaving ? 'Saving Mappings...' : 'Save All Mappings'}</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Modal: Add User */}

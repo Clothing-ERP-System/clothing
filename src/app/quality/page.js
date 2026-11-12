@@ -6,8 +6,10 @@ import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import RecordAttachments from '@/components/RecordAttachments';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   CheckCircle2,
   Plus,
@@ -17,6 +19,7 @@ import {
   ShieldCheck,
   Search,
   Package,
+  Eye,
 } from 'lucide-react';
 
 export default function QualityFinishingPage() {
@@ -28,6 +31,7 @@ export default function QualityFinishingPage() {
   const [editingInspection, setEditingInspection] = useState(null);
   const [attachmentInspection, setAttachmentInspection] = useState(null);
   const submissionRequestId = useRef(null);
+  const [viewInspection, setViewInspection] = useState(null);
 
   // New Inspection Form
   const [newAudit, setNewAudit] = useState({
@@ -46,7 +50,7 @@ export default function QualityFinishingPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/quality');
+      const res = await apiFetch('/api/quality');
       const json = await res.json();
       if (json.success) {
         setInspections(json.data.inspections || []);
@@ -69,7 +73,7 @@ export default function QualityFinishingPage() {
       if (!submissionRequestId.current) {
         submissionRequestId.current = globalThis.crypto.randomUUID();
       }
-      const res = await fetch('/api/quality', {
+      const res = await apiFetch('/api/quality', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -95,7 +99,7 @@ export default function QualityFinishingPage() {
 
   const handleUpdateInspection = async (inspectionId, updates) => {
     try {
-      const response = await fetch('/api/quality', {
+      const response = await apiFetch('/api/quality', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_INSPECTION', inspectionId, ...updates }),
@@ -194,26 +198,36 @@ export default function QualityFinishingPage() {
                     Inspector: <span className="font-bold text-slate-800">{qc.inspectorName}</span>
                   </div>
                 </div>
-                {qc.stage !== 'FinalGarmentQC' && Number(qc.acceptedForStockQuantity || 0) === 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditingInspection(qc)}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                    >
-                      Edit Inspection
-                    </button>
-                    <RecordDeleteButton
-                      endpoint="/api/quality"
-                      action="DELETE_INSPECTION"
-                      idField="inspectionId"
-                      recordId={qc._id}
-                      recordLabel={`inspection ${qc.inspectionNumber}`}
-                      onDeleted={fetchData}
-                      className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50"
-                    />
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewInspection(qc)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Eye className="w-3 h-3 mr-1" />
+                    View Details
+                  </button>
+                  {qc.stage !== 'FinalGarmentQC' && Number(qc.acceptedForStockQuantity || 0) === 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEditingInspection(qc)}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Edit Inspection
+                      </button>
+                      <RecordDeleteButton
+                        endpoint="/api/quality"
+                        action="DELETE_INSPECTION"
+                        idField="inspectionId"
+                        recordId={qc._id}
+                        recordLabel={`inspection ${qc.inspectionNumber}`}
+                        onDeleted={fetchData}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50"
+                      />
+                    </>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setAttachmentInspection(qc)}
@@ -451,6 +465,37 @@ export default function QualityFinishingPage() {
           module="quality"
           record={attachmentInspection}
           onClose={() => setAttachmentInspection(null)}
+        />
+
+        {/* View Quality Inspection Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewInspection)}
+          onClose={() => setViewInspection(null)}
+          record={viewInspection}
+          title={`Inspection: ${viewInspection?.inspectionNumber || ''}`}
+          subtitle={`Stage: ${viewInspection?.stage || ''} • Reference: ${viewInspection?.referenceOrder || ''}`}
+          fields={[
+            { name: 'inspectionNumber', label: 'Inspection Number', type: 'text' },
+            { name: 'stage', label: 'Inspection Stage', type: 'text' },
+            { name: 'referenceOrder', label: 'Reference Order', type: 'text' },
+            { name: 'articleCode', label: 'Article Code', type: 'text' },
+            { name: 'productionOrderId', label: 'Production Order ID', type: 'text' },
+            { name: 'inspectorName', label: 'Inspector Name', type: 'text' },
+            { name: 'totalSampleChecked', label: 'Sample Checked', type: 'text' },
+            { name: 'passedQuantity', label: 'Passed Quantity', type: 'text' },
+            { name: 'reworkQuantity', label: 'Rework Quantity', type: 'text' },
+            { name: 'rejectedQuantity', label: 'Rejected Quantity', type: 'text' },
+            { name: 'passRatePercentage', label: 'Pass Rate (%)', type: 'text' },
+            { name: 'acceptedForStockQuantity', label: 'Accepted for Stock', type: 'text' },
+            { name: 'finalVerdict', label: 'Final Verdict', type: 'text' },
+            { name: 'finishingStatus', label: 'Finishing Checklist', type: 'object' },
+            { name: 'remarks', label: 'Remarks', type: 'text' },
+            { name: 'defects', label: 'Defects Logged', type: 'array', itemFields: [
+              { name: 'defectType', label: 'Defect Type' },
+              { name: 'quantity', label: 'Quantity', type: 'text' },
+              { name: 'notes', label: 'Notes' },
+            ] },
+          ]}
         />
       </div>
     </Layout>

@@ -8,6 +8,8 @@ import { canAccessModule, resourceForPath } from '@/lib/role-access.js';
 import {
   LayoutDashboard,
   ShoppingBag,
+  AlertTriangle,
+  RotateCcw,
   Layers,
   Package,
   Droplets,
@@ -25,7 +27,27 @@ import {
   BarChart3,
   Settings,
   ChevronRight,
+  ChevronDown,
   Cloud,
+  ShieldCheck,
+  PlusCircle,
+  MinusCircle,
+  Receipt,
+  Building2,
+  Scale,
+  BookOpen,
+  FileSpreadsheet,
+  FileText,
+  FileBarChart,
+  TrendingUp,
+  Landmark,
+  Users,
+  Truck,
+  Percent,
+  ClipboardList,
+  MapPin,
+  Mail,
+  Flag,
 } from 'lucide-react';
 
 const NAV_GROUPS = [
@@ -35,15 +57,31 @@ const NAV_GROUPS = [
     dotColor: 'bg-[#38BDF8] shadow-[0_0_8px_rgba(56,189,248,0.8)]',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'Reports & Analytics', href: '/reports', icon: BarChart3 },
+      { name: 'Administration & Security', href: '/admin', icon: ShieldCheck },
+      { name: 'Client Onboarding', href: '/onboarding', icon: Flag },
     ],
   },
   {
-    title: 'SUPPLY & MATERIALS',
+    title: 'Purchase',
     accentColor: 'text-[#2DD4BF]', // Mint / Cyan
     dotColor: 'bg-[#2DD4BF] shadow-[0_0_8px_rgba(45,212,191,0.8)]',
     items: [
-      { name: 'Procurement', href: '/procurement', icon: ShoppingBag },
+      {
+        name: 'Procurement',
+        isDropdown: true,
+        icon: ShoppingBag,
+        children: [
+          { name: 'Purchase Order', href: '/procurement', icon: ShoppingBag },
+          { name: 'Purchase Requisition', href: '/procurement/requisitions', icon: ClipboardList },
+          { name: 'RFQ', href: '/procurement/rfq', icon: Mail },
+          { name: 'Supplier Quotations', href: '/procurement/quotations', icon: Package },
+          { name: 'Supplier Invoices', href: '/procurement/supplier-invoices', icon: Receipt },
+          { name: 'Residual GRNI Review', href: '/procurement/residual-grni', icon: AlertTriangle },
+          { name: 'Historical Data Review', href: '/procurement/historical-review', icon: FileText },
+          { name: 'Stock Alert List', href: '/procurement/stock-alerts', icon: AlertTriangle },
+          { name: 'Purchase Return List', href: '/procurement/returns', icon: RotateCcw },
+        ],
+      },
       { name: 'Fabric / Kora Kapra', href: '/fabric', icon: Layers },
       { name: 'Trims & Accessories', href: '/trims', icon: Package },
       { name: 'Dyeing & Processing', href: '/dyeing', icon: Droplets },
@@ -59,6 +97,7 @@ const NAV_GROUPS = [
       { name: 'Stitching & Production', href: '/production', icon: Shirt },
       { name: 'Quality & Finishing', href: '/quality', icon: CheckCircle2 },
       { name: 'Warehouse & Logistics', href: '/warehouse', icon: Warehouse },
+      { name: 'Location Management', href: '/warehouse/locations', icon: MapPin },
     ],
   },
   {
@@ -66,10 +105,59 @@ const NAV_GROUPS = [
     accentColor: 'text-[#FB923C]', // Peach / Amber
     dotColor: 'bg-[#FB923C] shadow-[0_0_8px_rgba(251,146,60,0.8)]',
     items: [
-      { name: 'Sales & Customer Tiers', href: '/sales', icon: Users2 },
+      {
+        name: 'Sales & Customer Tiers',
+        isDropdown: true,
+        icon: Users2,
+        children: [
+          { name: 'Sales Orders', href: '/sales', icon: FileText },
+          { name: 'Sales Quotations', href: '/sales/quotations', icon: Mail },
+        ],
+      },
       { name: 'Retail POS', href: '/pos', icon: Store },
-      { name: 'Finance & Accounts', href: '/finance', icon: DollarSign },
       { name: 'Marketing & CRM', href: '/crm', icon: Megaphone },
+    ],
+  },
+  {
+    title: 'Finance & Accounts',
+    accentColor: 'text-[#34D399]', // Emerald / Mint
+    dotColor: 'bg-[#34D399] shadow-[0_0_8px_rgba(52,211,153,0.8)]',
+    items: [
+      {
+        name: 'Expenses',
+        isDropdown: true,
+        icon: Receipt,
+        children: [
+          { name: 'Add Expense', href: '/accounts/expenses/new', icon: MinusCircle },
+          { name: 'Expense Lists', href: '/accounts/expenses', icon: Receipt },
+        ],
+      },
+      {
+        name: 'Income',
+        isDropdown: true,
+        icon: DollarSign,
+        children: [
+          { name: 'Add Income', href: '/accounts/income/new', icon: PlusCircle },
+          { name: 'Income Lists', href: '/accounts/income', icon: DollarSign },
+        ],
+      },
+      { name: 'Bank Accounts', href: '/accounts/banks', icon: Building2 },
+      { name: 'Opening Balance', href: '/accounts/opening-balance', icon: Scale },
+      { name: 'Chart of Accounts', href: '/accounts/chart-of-accounts', icon: BookOpen },
+      {
+        name: 'Reports',
+        isDropdown: true,
+        icon: FileSpreadsheet,
+        children: [
+          { name: 'Transactions', href: '/accounts/reports/transactions', icon: FileText },
+          { name: 'Statements', href: '/accounts/reports/statements', icon: FileBarChart },
+          { name: 'Profit & Loss', href: '/accounts/reports/profit-loss', icon: TrendingUp },
+          { name: 'Trial Balance', href: '/accounts/reports/trial-balance', icon: Landmark },
+          { name: 'Income by Customer', href: '/accounts/reports/income-by-customer', icon: Users },
+          { name: 'Expense by Supplier', href: '/accounts/reports/expense-by-supplier', icon: Truck },
+          { name: 'Sales Tax', href: '/accounts/reports/sales-tax', icon: Percent },
+        ],
+      },
     ],
   },
   {
@@ -77,8 +165,9 @@ const NAV_GROUPS = [
     accentColor: 'text-[#F472B6]', // Soft Pink / Rose
     dotColor: 'bg-[#F472B6] shadow-[0_0_8px_rgba(244,114,182,0.8)]',
     items: [
-      { name: 'HR & Biometrics', href: '/hr', icon: UserCheck },
+      { name: 'Human Resources', href: '/hr', icon: UserCheck },
       { name: 'Assets & Fleet', href: '/assets', icon: Wrench },
+      { name: 'Reports & Analytics', href: '/reports', icon: BarChart3 },
       { name: 'Settings', href: '/settings', icon: Settings },
     ],
   },
@@ -87,6 +176,21 @@ const NAV_GROUPS = [
 export default function Sidebar({ isExpanded, isMobileOpen, setIsMobileOpen }) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const [openDropdowns, setOpenDropdowns] = React.useState({});
+
+  const toggleDropdown = (name) => {
+    setOpenDropdowns((prev) => ({
+      ...prev,
+      [name]: !prev[name],
+    }));
+  };
+
+  const isDropdownOpen = (item) => {
+    if (openDropdowns[item.name] !== undefined) {
+      return openDropdowns[item.name];
+    }
+    return Boolean(item.children?.some((child) => pathname === child.href));
+  };
 
   return (
     <>
@@ -228,12 +332,18 @@ export default function Sidebar({ isExpanded, isMobileOpen, setIsMobileOpen }) {
 
         {/* Scrollable Nav List with Coordinated Section Heading Colors */}
         <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 relative z-10 custom-scrollbar">
-          {NAV_GROUPS.map((group, gIdx) => ({
-            ...group,
-            items: group.items.filter((item) =>
-              canAccessModule(user, resourceForPath[item.href])
-            ),
-          })).filter((group) => group.items.length > 0).map((group, gIdx) => (
+          {NAV_GROUPS.map((group) => {
+            const accessibleItems = group.items.filter((item) => {
+              if (item.isDropdown) {
+                return (item.children || []).some((child) => canAccessModule(user, resourceForPath[child.href]));
+              }
+              return canAccessModule(user, resourceForPath[item.href]);
+            });
+            return {
+              ...group,
+              items: accessibleItems,
+            };
+          }).filter((group) => group.items.length > 0).map((group, gIdx) => (
             <div key={gIdx} className="space-y-1">
               {isExpanded ? (
                 <div className="px-2.5 pb-1 flex items-center gap-2">
@@ -247,6 +357,84 @@ export default function Sidebar({ isExpanded, isMobileOpen, setIsMobileOpen }) {
               )}
 
               {group.items.map((item) => {
+                if (item.isDropdown) {
+                  const isOpen = isDropdownOpen(item);
+                  const isChildActive = (item.children || []).some((c) => pathname === c.href);
+                  const Icon = item.icon;
+                  const accessibleChildren = (item.children || []).filter((child) =>
+                    canAccessModule(user, resourceForPath[child.href])
+                  );
+
+                  return (
+                    <div key={item.name} className="space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleDropdown(item.name)}
+                        title={item.name}
+                        className={`w-full flex items-center ${
+                          isExpanded ? 'justify-between px-2.5 py-2' : 'justify-center p-2'
+                        } rounded-xl text-xs font-semibold transition-all duration-200 group cursor-pointer ${
+                          isChildActive
+                            ? 'bg-slate-800/90 text-white border border-indigo-500/40 shadow-xs'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Icon
+                            className={`w-4 h-4 shrink-0 transition-colors ${
+                              isChildActive ? 'text-indigo-400' : 'text-slate-400 group-hover:text-indigo-400'
+                            }`}
+                          />
+                          {isExpanded && <span className="truncate">{item.name}</span>}
+                        </div>
+
+                        {isExpanded && (
+                          <ChevronDown
+                            className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-1 ${
+                              isOpen ? 'rotate-180 text-indigo-400' : ''
+                            }`}
+                          />
+                        )}
+                      </button>
+
+                      {isExpanded && isOpen && (
+                        <div className="ml-4 pl-2 border-l border-slate-800/80 space-y-1 my-1">
+                          {accessibleChildren.map((child) => {
+                            const isSubActive = pathname === child.href;
+                            const ChildIcon = child.icon;
+
+                            return (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                title={child.name}
+                                onClick={() => {
+                                  if (typeof window !== 'undefined' && window.innerWidth < 1024) setIsMobileOpen(false);
+                                }}
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 group cursor-pointer ${
+                                  isSubActive
+                                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs font-bold'
+                                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <ChildIcon
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isSubActive ? 'text-white' : 'text-slate-500 group-hover:text-indigo-300'
+                                    }`}
+                                  />
+                                  <span className="truncate">{child.name}</span>
+                                </div>
+                                {isSubActive && <ChevronRight className="w-3 h-3 text-white/90 shrink-0 ml-1" />}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
 

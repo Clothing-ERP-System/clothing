@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Shirt,
   Plus,
@@ -20,6 +22,7 @@ import {
   Layers,
   Sparkles,
   Wrench,
+  Eye,
 } from 'lucide-react';
 
 export default function ProductionStitchingPage() {
@@ -45,6 +48,7 @@ export default function ProductionStitchingPage() {
   });
   const [isReworkOpen, setIsReworkOpen] = useState(false);
   const [reworkForm, setReworkForm] = useState({ quantity: '', notes: '' });
+  const [viewOrder, setViewOrder] = useState(null);
 
   // New Production Order Form
   const [newOrder, setNewOrder] = useState({
@@ -67,7 +71,7 @@ export default function ProductionStitchingPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/production');
+      const res = await apiFetch('/api/production');
       const json = await res.json();
       if (json.success) {
         setProductionOrders(json.data.productionOrders || []);
@@ -96,7 +100,7 @@ export default function ProductionStitchingPage() {
       if (!productionOrderRequestId.current) {
         productionOrderRequestId.current = globalThis.crypto.randomUUID();
       }
-      const res = await fetch('/api/production', {
+      const res = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,7 +126,7 @@ export default function ProductionStitchingPage() {
 
   const handleUpdateProductionOrder = async (orderId, updates) => {
     try {
-      const response = await fetch('/api/production', {
+      const response = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_PRODUCTION_ORDER', orderId, ...updates }),
@@ -160,7 +164,7 @@ export default function ProductionStitchingPage() {
     event.preventDefault();
     if (!selectedOrder) return;
     try {
-      const response = await fetch('/api/production', {
+      const response = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -188,7 +192,7 @@ export default function ProductionStitchingPage() {
     event.preventDefault();
     if (!selectedOrder) return;
     try {
-      const response = await fetch('/api/production', {
+      const response = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -215,7 +219,7 @@ export default function ProductionStitchingPage() {
     event.preventDefault();
     if (!selectedOrder) return;
     try {
-      const response = await fetch('/api/production', {
+      const response = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -246,7 +250,7 @@ export default function ProductionStitchingPage() {
     if (!selectedOrder) return;
 
     try {
-      const res = await fetch('/api/production', {
+      const res = await apiFetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -375,6 +379,14 @@ export default function ProductionStitchingPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewOrder(selectedOrder)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      <Eye className="w-3 h-3 mr-1" />
+                      View Details
+                    </button>
                     <button
                       type="button"
                       onClick={() => setEditingProductionOrder(selectedOrder)}
@@ -892,6 +904,55 @@ export default function ProductionStitchingPage() {
           title={`Edit Production Order: ${editingProductionOrder?.productionOrderNumber || ''}`}
           fields={PRODUCTION_ORDER_EDIT_FIELDS}
           onSave={handleUpdateProductionOrder}
+        />
+
+        {/* View Production Order Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewOrder)}
+          onClose={() => setViewOrder(null)}
+          record={viewOrder}
+          title={`Production Order: ${viewOrder?.productionOrderNumber || ''}`}
+          subtitle={`Design: ${viewOrder?.designCode || ''} • Article: ${viewOrder?.articleName || ''}`}
+          fields={[
+            { name: 'productionOrderNumber', label: 'Production Order Number', type: 'text' },
+            { name: 'designCode', label: 'Design Code', type: 'text' },
+            { name: 'articleName', label: 'Article Name', type: 'text' },
+            { name: 'cuttingOrderRef', label: 'Cutting Order Reference', type: 'text' },
+            { name: 'stitchingLine', label: 'Stitching Line', type: 'text' },
+            { name: 'supervisor', label: 'Supervisor', type: 'text' },
+            { name: 'targetQuantity', label: 'Target Quantity (Pcs)', type: 'text' },
+            { name: 'completedQuantity', label: 'Completed Quantity', type: 'text' },
+            { name: 'wipQuantity', label: 'WIP Quantity', type: 'text' },
+            { name: 'rejectedQuantity', label: 'Rejected Quantity', type: 'text' },
+            { name: 'status', label: 'Status', type: 'text' },
+            { name: 'startDate', label: 'Start Date', type: 'date' },
+            { name: 'targetDate', label: 'Target Date', type: 'date' },
+            { name: 'warehouseLocation', label: 'Warehouse Location', type: 'text' },
+            {
+              name: 'materialRequirements',
+              label: 'BOM Material Requirements',
+              type: 'array',
+              itemFields: [
+                { name: 'stockItemType', label: 'Item Type' },
+                { name: 'stockItemCode', label: 'Item Code' },
+                { name: 'itemName', label: 'Item Name' },
+                { name: 'quantityPerGarment', label: 'Qty Per Garment', type: 'text' },
+                { name: 'requiredQuantity', label: 'Required Quantity', type: 'text' },
+                { name: 'unit', label: 'Unit' },
+              ],
+            },
+            { name: 'operations', label: 'Operations', type: 'array', itemFields: [
+              { name: 'operationName', label: 'Operation' },
+              { name: 'completedPieces', label: 'Completed Pieces', type: 'text' },
+            ] },
+            { name: 'materialConsumptions', label: 'Material Consumptions', type: 'array', itemFields: [
+              { name: 'stockItemCode', label: 'Item Code' },
+              { name: 'itemName', label: 'Item Name' },
+              { name: 'quantityConsumed', label: 'Quantity Consumed', type: 'text' },
+              { name: 'wastageQuantity', label: 'Wastage', type: 'text' },
+              { name: 'consumedAt', label: 'Consumed At', type: 'date' },
+            ] },
+          ]}
         />
       </div>
     </Layout>

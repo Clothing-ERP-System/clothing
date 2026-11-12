@@ -6,6 +6,7 @@ import Modal from '@/components/Modal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Scissors,
   Plus,
@@ -47,9 +48,9 @@ export default function CuttingDepartmentPage() {
   const fetchData = useCallback(async () => {
     try {
       const [resCut, resFab, resDsn] = await Promise.all([
-        fetch('/api/cutting'),
-        fetch('/api/fabric'),
-        fetch('/api/design'),
+        apiFetch('/api/cutting'),
+        apiFetch('/api/fabric'),
+        apiFetch('/api/design'),
       ]);
 
       const [jsonCut, jsonFab, jsonDsn] = await Promise.all([
@@ -80,7 +81,7 @@ export default function CuttingDepartmentPage() {
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/cutting', {
+      const res = await apiFetch('/api/cutting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_CUTTING_ORDER', ...newOrder }),
@@ -100,7 +101,7 @@ export default function CuttingDepartmentPage() {
 
   const handleHandover = async (orderId) => {
     try {
-      const res = await fetch('/api/cutting', {
+      const res = await apiFetch('/api/cutting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

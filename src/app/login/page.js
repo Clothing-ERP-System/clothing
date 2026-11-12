@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Factory, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/lib/apiFetch.js';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,7 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/auth/setup')
+    apiFetch('/api/auth/setup')
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'MySQL connection unavailable');

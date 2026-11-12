@@ -2,16 +2,21 @@
   "name": "erpdost",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-vm-modules --test tests/*.test.js",
+    "test:unit": "node --test tests/reversal-wip-safety.test.js tests/transaction-lock-unit.test.js",
+    "test:production": "node --test tests/production-functions.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
+    "jsbarcode": "^3.12.3",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.61.0",
     "mysql2": "^3.14.1",

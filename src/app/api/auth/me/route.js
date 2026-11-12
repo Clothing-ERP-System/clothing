@@ -18,12 +18,14 @@ export async function GET() {
     if (!user || user.isActive === false) {
       const response = unauthorizedResponse('This account is no longer active');
       response.cookies.delete('garment_erp_session');
+      response.cookies.delete('csrf_token');
       return response;
     }
     const role = BUILT_IN_ROLES.includes(user.role) ? null : await Role.findOne({ name: user.role });
     if (!BUILT_IN_ROLES.includes(user.role) && !role) {
       const response = unauthorizedResponse('This account has an invalid role assignment');
       response.cookies.delete('garment_erp_session');
+      response.cookies.delete('csrf_token');
       return response;
     }
     return successResponse({ user: publicUser(user, role?.permissions) }, 'Current session retrieved');

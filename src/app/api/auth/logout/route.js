@@ -4,5 +4,6 @@ import { successResponse } from '@/lib/api-response.js';
 export async function POST() {
   const response = successResponse({}, 'Logged out successfully');
   response.cookies.delete(COOKIE_NAME);
+  response.cookies.delete('csrf_token');
   return response;
 }

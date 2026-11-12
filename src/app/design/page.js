@@ -6,8 +6,10 @@ import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
 import RecordAttachments from '@/components/RecordAttachments';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Palette,
   Plus,
@@ -20,6 +22,7 @@ import {
   Trash2,
   Layers,
   Shirt,
+  Eye,
 } from 'lucide-react';
 
 export default function DesignBOMPage() {
@@ -30,6 +33,7 @@ export default function DesignBOMPage() {
   const [selectedDesign, setSelectedDesign] = useState(null);
   const [editingDesign, setEditingDesign] = useState(null);
   const [attachmentDesign, setAttachmentDesign] = useState(null);
+  const [viewDesign, setViewDesign] = useState(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   // New Design Form
@@ -53,7 +57,7 @@ export default function DesignBOMPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/design');
+      const res = await apiFetch('/api/design');
       const json = await res.json();
       if (json.success) {
         setDesigns(json.data.designs || []);
@@ -76,7 +80,7 @@ export default function DesignBOMPage() {
   const handleCreateDesign = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/design', {
+      const res = await apiFetch('/api/design', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -104,7 +108,7 @@ export default function DesignBOMPage() {
 
   const handleUpdateDesign = async (designId, updates) => {
     try {
-      const response = await fetch('/api/design', {
+      const response = await apiFetch('/api/design', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_DESIGN', designId, ...updates }),
@@ -200,6 +204,17 @@ export default function DesignBOMPage() {
                     </div>
                     <h3 className="text-xs font-bold text-slate-900 mt-1">{art.title}</h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">{art.category} • {art.season}</p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setViewDesign(art);
+                      }}
+                      className="mt-2 rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Eye className="w-3 h-3 mr-1" />
+                      View
+                    </button>
                     <button
                       type="button"
                       onClick={(event) => {
@@ -690,6 +705,61 @@ export default function DesignBOMPage() {
           module="design"
           record={attachmentDesign}
           onClose={() => setAttachmentDesign(null)}
+        />
+
+        {/* View Design Article Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewDesign)}
+          onClose={() => setViewDesign(null)}
+          record={viewDesign}
+          title={`Design: ${viewDesign?.designCode || ''} — ${viewDesign?.title || ''}`}
+          subtitle={`Category: ${viewDesign?.category || ''} • Status: ${viewDesign?.sampleStatus || ''}`}
+          maxWidth="max-w-4xl"
+          fields={[
+            { name: 'designCode', label: 'Design Code', type: 'text' },
+            { name: 'title', label: 'Article Title', type: 'text' },
+            { name: 'category', label: 'Category', type: 'text' },
+            { name: 'sampleStatus', label: 'Sample Status', type: 'text' },
+            { name: 'season', label: 'Season', type: 'text' },
+            { name: 'designerName', label: 'Designer', type: 'text' },
+            { name: 'barcode', label: 'Barcode', type: 'text' },
+            { name: 'fabricConsumptionPerPiece', label: 'Fabric Consumption / Piece (m)', type: 'text' },
+            { name: 'cuttingCostPerPiece', label: 'Cutting Cost / Piece', type: 'money' },
+            { name: 'stitchingCostPerPiece', label: 'Stitching Cost / Piece', type: 'money' },
+            { name: 'finishingCostPerPiece', label: 'Finishing Cost / Piece', type: 'money' },
+            { name: 'overheadCostPerPiece', label: 'Overhead Cost / Piece', type: 'money' },
+            { name: 'estimatedFactoryCost', label: 'Total Factory Cost', type: 'money' },
+            { name: 'suggestedWholesalePrice', label: 'Suggested Wholesale Price', type: 'money' },
+            { name: 'suggestedRetailPrice', label: 'Suggested Retail Price', type: 'money' },
+            { name: 'techPackNotes', label: 'Tech Pack Notes', type: 'text' },
+            { name: 'finishedGoodsStock', label: 'Finished Goods Stock', type: 'text' },
+            {
+              name: 'bom',
+              label: 'Bill of Materials',
+              type: 'array',
+              itemFields: [
+                { name: 'stockItemType', label: 'Material Type' },
+                { name: 'stockItemCode', label: 'Item Code' },
+                { name: 'itemName', label: 'Item Name' },
+                { name: 'quantityPerGarment', label: 'Qty per Garment', type: 'text' },
+                { name: 'unit', label: 'Unit' },
+                { name: 'estimatedUnitCost', label: 'Unit Cost', type: 'money' },
+              ],
+            },
+            {
+              name: 'sizeGrading',
+              label: 'Size Grading',
+              type: 'array',
+              itemFields: [
+                { name: 'sizeName', label: 'Size Name' },
+                { name: 'chestInches', label: 'Chest (in)', type: 'text' },
+                { name: 'lengthInches', label: 'Length (in)', type: 'text' },
+                { name: 'shoulderInches', label: 'Shoulder (in)', type: 'text' },
+                { name: 'sleeveInches', label: 'Sleeve (in)', type: 'text' },
+                { name: 'waistInches', label: 'Waist (in)', type: 'text' },
+              ],
+            },
+          ]}
         />
       </div>
     </Layout>

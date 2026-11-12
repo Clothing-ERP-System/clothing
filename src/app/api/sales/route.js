@@ -1,7 +1,8 @@
-import { allocateSequence, connectDB } from '@/lib/db.js';
+import { allocateSequence, connectDB, runInTransaction } from '@/lib/db.js';
 import Customer from '@/models/Customer.js';
 import DesignArticle from '@/models/Design.js';
 import SalesOrder from '@/models/SalesOrder.js';
+import SalesQuotation from '@/models/SalesQuotation.js';
 import { AccountHead } from '@/models/Accounting.js';
 import AuditLog from '@/models/AuditLog.js';
 import { successResponse, errorResponse, fromError } from '@/lib/api-response.js';
@@ -9,6 +10,8 @@ import { applyListQuery, deleteRecord, parseListQuery, pickFields, updateRecord 
 import { withAuthorization } from '@/lib/authorization.js';
 import { adjustWarehouseStock, getWarehouseStock, recordInventoryMovement } from '@/lib/inventory.js';
 import { postBalancedJournalEntry } from '@/lib/accounting.js';
+import { resolveAndValidateMapping, validateMappingsPresent, getCompanyContext } from '@/lib/accounting-mappings.js';
+import { randomUUID } from 'node:crypto';
 
 async function getSales(request) {
   try {
@@ -78,6 +81,7 @@ async function postSales(request) {
     }
 
     if (action === 'CREATE_SALES_ORDER') {
+      return await runInTransaction(async () => {
       const {
         customerId,
         items,
@@ -274,6 +278,68 @@ async function postSales(request) {
       order.financialEntryId = salesJournal._id;
       order.initialPaymentMethod = paid > 0 ? paymentMethod : '';
 
+      // COGS posting: Dr Cost of Goods Sold / Cr Finished Goods Inventory.
+      // Uses actual finished goods cost per unit tracked at QC receipt time.
+      // If cost data is missing for any article, COGS posting is blocked
+      // rather than using invented values.
+      const salesCompany = await getCompanyContext();
+      const salesMappings = salesCompany && salesCompany.accountingMappings ? salesCompany.accountingMappings : {};
+      const cogsMappingResult = await resolveAndValidateMapping(
+        salesMappings,
+        'cogsAccountCode',
+        'CostOfGoodsSold',
+      );
+      const inventoryMappingResult = await resolveAndValidateMapping(
+        salesMappings,
+        'inventoryAccountCode',
+        'Asset',
+      );
+      let cogsBlocked = false;
+      let cogsBlockReason = '';
+      let totalCogs = 0;
+      if (!cogsMappingResult.error && !inventoryMappingResult.error &&
+        cogsMappingResult.account && inventoryMappingResult.account) {
+        for (const [articleCode, quantity] of requestedByArticle) {
+          const design = lockedDesigns.get(articleCode);
+          const costPerUnit = Number(design?.finishedGoodsCostPerUnit || 0);
+          if (!costPerUnit || costPerUnit <= 0) {
+            cogsBlocked = true;
+            cogsBlockReason = `No finished goods cost data for ${articleCode}. COGS posting blocked.`;
+            break;
+          }
+          totalCogs += Math.round(costPerUnit * quantity * 100) / 100;
+        }
+        if (!cogsBlocked && totalCogs > 0) {
+          const { entry: cogsJournal } = await postBalancedJournalEntry({
+            sourceKey: `SALES_COGS:${order._id}`,
+            voucherType: 'COGS',
+            narration: `Cost of goods sold for ${orderNumber}`,
+            referenceNumber: orderNumber,
+            postedBy: salesRep || '',
+            lines: [
+              {
+                accountCode: cogsMappingResult.account.code,
+                accountName: cogsMappingResult.account.name,
+                debit: totalCogs,
+                credit: 0,
+                memo: `COGS for ${orderNumber}`,
+              },
+              {
+                accountCode: inventoryMappingResult.account.code,
+                accountName: inventoryMappingResult.account.name,
+                debit: 0,
+                credit: totalCogs,
+                memo: `Finished goods inventory relieved for ${orderNumber}`,
+              },
+            ],
+          });
+          order.cogsJournalId = cogsJournal._id;
+        }
+      } else {
+        cogsBlocked = true;
+        cogsBlockReason = 'COGS or inventory account mapping not configured.';
+      }
+
       for (const [articleCode, quantity] of requestedByArticle) {
         const design = lockedDesigns.get(articleCode);
         if (!adjustWarehouseStock(design, 'finishedGoodsStock', saleLocation, -quantity)) {
@@ -307,6 +373,7 @@ async function postSales(request) {
       });
 
       return successResponse({ salesOrder: order }, 'Sales Order generated');
+      });
     }
 
     if (action === 'RECORD_PAYMENT') {
@@ -408,6 +475,7 @@ async function postSales(request) {
     }
 
     if (action === 'CANCEL_SALES_ORDER') {
+      return await runInTransaction(async () => {
       const order = await SalesOrder.findByIdForUpdate(body.orderId);
       if (!order) return errorResponse('Sales Order not found', 404);
       if (order.status === 'Cancelled') return errorResponse('This sales order has already been cancelled', 409);
@@ -418,6 +486,13 @@ async function postSales(request) {
       if (!cancellationReason) return errorResponse('A cancellation reason is required', 400);
       const customer = await Customer.findByIdForUpdate(order.customerId);
       if (!customer) return errorResponse('The customer for this sales order no longer exists', 409);
+
+      // Resolve COGS and inventory account mappings for COGS reversal
+      const cancelCompany = await getCompanyContext();
+      const cancelMappings = cancelCompany && cancelCompany.accountingMappings ? cancelCompany.accountingMappings : {};
+      const cogsMappingResult = await resolveAndValidateMapping(cancelMappings, 'cogsAccountCode', 'CostOfGoodsSold');
+      const inventoryMappingResult = await resolveAndValidateMapping(cancelMappings, 'inventoryAccountCode', 'Asset');
+
       const designsByCode = new Map();
       const returnQuantities = new Map();
       for (const item of order.items || []) {
@@ -460,6 +535,45 @@ async function postSales(request) {
         !receivableAccount || receivableAccount.type !== 'Asset') {
         return errorResponse('The sales order is missing its original finance accounts and cannot be cancelled safely', 409);
       }
+      // COGS reversal: Dr Finished Goods / Cr Cost of Goods Sold.
+      // Only reverse COGS if a COGS journal was originally posted for this order.
+      let cogsReversed = false;
+      if (order.cogsJournalId) {
+        const cogsJournal = await JournalEntry.findOne({ _id: order.cogsJournalId });
+        if (cogsJournal && cogsJournal.voucherType === 'COGS') {
+          const cogsLine = cogsJournal.lines.find((l) => l.accountCode === cogsMappingResult?.account?.code && (l.debit || 0) > 0);
+          const inventoryLine = cogsJournal.lines.find((l) => l.accountCode === inventoryMappingResult?.account?.code && (l.credit || 0) > 0);
+          if (cogsLine && inventoryLine) {
+            const cogsReversalLines = [
+              {
+                accountCode: inventoryMappingResult.account.code,
+                accountName: inventoryMappingResult.account.name,
+                debit: cogsLine.debit,
+                credit: 0,
+                memo: `Reverse COGS for cancelled order ${order.orderNumber}`,
+              },
+              {
+                accountCode: cogsMappingResult.account.code,
+                accountName: cogsMappingResult.account.name,
+                debit: 0,
+                credit: inventoryLine.credit,
+                memo: `Reverse finished goods inventory for cancelled order ${order.orderNumber}`,
+              },
+            ];
+            const { entry: cogsReversalJournal } = await postBalancedJournalEntry({
+              sourceKey: `SALES_COGS_CANCEL:${order._id}`,
+              voucherType: 'COGSCancellation',
+              narration: `Reverse COGS for cancelled order ${order.orderNumber}`,
+              referenceNumber: order.orderNumber,
+              postedBy: String(body.cancelledBy || ''),
+              lines: cogsReversalLines,
+            });
+            order.cogsReversalJournalId = cogsReversalJournal._id;
+            cogsReversed = true;
+          }
+        }
+      }
+
       const { entry } = await postBalancedJournalEntry({
         sourceKey: `SALES_ORDER_CANCEL:${order._id}`,
         voucherType: 'SalesCancellation',
@@ -487,12 +601,15 @@ async function postSales(request) {
       order.cancelledAt = new Date();
       order.cancellationReason = cancellationReason;
       order.cancellationFinancialEntryId = entry._id;
+      order.cogsReversed = cogsReversed;
       await customer.save();
       await order.save();
-      return successResponse({ salesOrder: order }, 'Sales order cancelled and inventory restored');
+      return successResponse({ salesOrder: order, cogsReversed }, 'Sales order cancelled and inventory restored');
+      });
     }
 
     if (action === 'PROCESS_SALES_RETURN') {
+      return await runInTransaction(async () => {
       const requestId = String(body.returnRequestId || '').trim();
       const orderRecord = await SalesOrder.findById(body.orderId);
       const order = orderRecord ? await SalesOrder.findByIdForUpdate(orderRecord._id) : null;
@@ -573,6 +690,13 @@ async function postSales(request) {
       if (!Number.isFinite(customerReceivable) || customerReceivable < receivableCredit) {
         return errorResponse('Customer receivable balance is inconsistent with this return', 409);
       }
+
+      // Resolve COGS and inventory account mappings for COGS reversal on return
+      const returnCompany = await getCompanyContext();
+      const returnMappings = returnCompany && returnCompany.accountingMappings ? returnCompany.accountingMappings : {};
+      const cogsMappingResult = await resolveAndValidateMapping(returnMappings, 'cogsAccountCode', 'CostOfGoodsSold');
+      const inventoryMappingResult = await resolveAndValidateMapping(returnMappings, 'inventoryAccountCode', 'Asset');
+
       const lockedDesigns = new Map();
       for (const articleCode of [...requestedQuantities.keys()].sort()) {
         const existingDesign = await DesignArticle.findOne({ designCode: articleCode });
@@ -647,6 +771,55 @@ async function postSales(request) {
         lines: journalLines,
       });
 
+      // COGS reversal for sales return: Dr Finished Goods / Cr Cost of Goods Sold.
+      // Uses the original cost basis from the sales order's COGS journal.
+      let cogsReversal = false;
+      let cogsReversedAmount = 0;
+      if (order.cogsJournalId) {
+        const cogsJournal = await JournalEntry.findOne({ _id: order.cogsJournalId });
+        if (cogsJournal && cogsJournal.voucherType === 'COGS') {
+          const cogsDebitLine = cogsJournal.lines.find((l) => l.accountCode === cogsMappingResult?.account?.code && (l.debit || 0) > 0);
+          const inventoryCreditLine = cogsJournal.lines.find((l) => l.accountCode === inventoryMappingResult?.account?.code && (l.credit || 0) > 0);
+          if (cogsDebitLine && inventoryCreditLine) {
+            const originalCogsTotal = Number(cogsDebitLine.debit || 0);
+            // Pro-rata COGS reversal based on this return's quantity vs total sold quantity.
+            // Uses original sold quantity as denominator, not post-return quantity.
+            const totalSoldQty = order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+            const thisReturnQty = Array.from(requestedQuantities.values()).reduce((sum, q) => sum + q, 0);
+            const returnRatio = totalSoldQty > 0 ? thisReturnQty / totalSoldQty : 0;
+            const cogsReversalAmount = Math.round(originalCogsTotal * returnRatio * 100) / 100;
+            if (cogsReversalAmount > 0) {
+              const { entry: cogsReversalJournal } = await postBalancedJournalEntry({
+                sourceKey: `SALES_COGS_RETURN:${order._id}:${requestId}`,
+                voucherType: 'COGSReturn',
+                narration: `Reverse COGS for sales return ${requestId} on order ${order.orderNumber}`,
+                referenceNumber: order.orderNumber,
+                postedBy: body.receivedBy || '',
+                lines: [
+                  {
+                    accountCode: inventoryMappingResult.account.code,
+                    accountName: inventoryMappingResult.account.name,
+                    debit: cogsReversalAmount,
+                    credit: 0,
+                    memo: `Restore finished goods inventory for return ${requestId}`,
+                  },
+                  {
+                    accountCode: cogsMappingResult.account.code,
+                    accountName: cogsMappingResult.account.name,
+                    debit: 0,
+                    credit: cogsReversalAmount,
+                    memo: `Reverse COGS for returned goods on order ${order.orderNumber}`,
+                  },
+                ],
+              });
+              order.cogsReversalJournalId = cogsReversalJournal._id;
+              cogsReversal = true;
+              cogsReversedAmount = cogsReversalAmount;
+            }
+          }
+        }
+      }
+
       customer.currentReceivableBalance = customerReceivable - receivableCredit;
       order.receivableCreditsTotal = priorCredits + receivableCredit;
       order.refundedAmountTotal = priorRefunds + refundAmount;
@@ -659,6 +832,8 @@ async function postSales(request) {
         refundMethod: String(body.refundMethod || ''),
         refundAccountCode: body.refundAccountCode || '',
         financialEntryId: entry._id,
+        cogsReversalAmount,
+        cogsReversalJournalId: order.cogsReversalJournalId,
         receivedBy: String(body.receivedBy || ''),
         reason: String(body.reason || '').trim(),
         returnedAt: new Date(),
@@ -676,9 +851,10 @@ async function postSales(request) {
         action: 'RETURN',
         module: 'Sales & Invoicing',
         recordId: order.orderNumber,
-        description: `Processed sales return ${requestId} for ${order.orderNumber} (${returnValue})`,
+        description: `Processed sales return ${requestId} for ${order.orderNumber} (${returnValue}, COGS reversal: Rs. ${cogsReversedAmount.toLocaleString()})`,
       });
-      return successResponse({ salesOrder: order, salesReturn: order.returns[order.returns.length - 1] }, 'Sales return processed');
+      return successResponse({ salesOrder: order, salesReturn: order.returns[order.returns.length - 1], cogsReversal }, 'Sales return processed');
+      });
     }
 
     if (action === 'UPDATE_CUSTOMER') {
@@ -746,6 +922,279 @@ async function postSales(request) {
       ]));
       if (!order) return errorResponse('Sales Order not found', 404);
       return successResponse({ salesOrder: order }, 'Sales order updated');
+    }
+
+    if (action === 'CONVERT_SALES_QUOTATION_TO_ORDER') {
+      return await runInTransaction(async () => {
+        const quotation = await SalesQuotation.findByIdForUpdate(body.quotationId);
+        if (!quotation) return errorResponse('Sales Quotation not found', 404);
+        if (quotation.status === 'Converted') {
+          const existingOrder = quotation.convertedOrderId
+            ? await SalesOrder.findById(quotation.convertedOrderId)
+            : null;
+          return successResponse(
+            { salesOrder: existingOrder, salesQuotation: quotation, duplicate: true },
+            'Sales quotation was already converted to a sales order',
+            200,
+          );
+        }
+        if (quotation.status !== 'Accepted') {
+          return errorResponse('Only accepted quotations can be converted to sales orders', 409);
+        }
+
+        const {
+          warehouseLocation,
+          revenueAccountCode,
+          receivableAccountCode,
+          paymentAccountCode,
+          paymentMethod,
+          amountPaid,
+          shippingFee,
+          deliveryDueDate,
+        } = body;
+
+        const normalizedWarehouse = String(warehouseLocation || '').trim();
+        if (!normalizedWarehouse) {
+          return errorResponse('Warehouse location is required for conversion', 400);
+        }
+        if (!revenueAccountCode || !receivableAccountCode) {
+          return errorResponse('Revenue and receivables accounts are required', 400);
+        }
+
+        // Resolve sales accounts from company mappings
+        const company = await getCompanyContext();
+        const mappings = company && company.accountingMappings ? company.accountingMappings : {};
+        const missingMappingErr = validateMappingsPresent(mappings, [
+          'salesRevenueAccountCode',
+          'salesReceivableAccountCode',
+        ], 'sales quotation conversion');
+        if (missingMappingErr) return errorResponse(missingMappingErr, 409);
+
+        const revenueResult = await resolveAndValidateMapping(mappings, 'salesRevenueAccountCode', 'Revenue');
+        if (revenueResult.error) return errorResponse(revenueResult.error, 400);
+        const receivableResult = await resolveAndValidateMapping(mappings, 'salesReceivableAccountCode', 'Asset');
+        if (receivableResult.error) return errorResponse(receivableResult.error, 400);
+
+        const revenueAccount = revenueResult.account;
+        const receivableAccount = receivableResult.account;
+
+        const customer = quotation.customerId
+          ? await Customer.findByIdForUpdate(quotation.customerId)
+          : await Customer.findOne({ name: quotation.customerName });
+        if (!customer) return errorResponse('Customer not found', 404);
+
+        const shipping = Number(shippingFee || 0);
+        const paid = Number(amountPaid || 0);
+        const grandTotal = Number(quotation.grandTotal) + shipping;
+        if (!Number.isFinite(paid) || paid < 0 || paid > grandTotal) {
+          return errorResponse('Advance received must be between zero and the quotation total', 400);
+        }
+
+        let paymentAccount = null;
+        if (paid > 0) {
+          if (!paymentAccountCode || !paymentMethod) {
+            return errorResponse('Payment account and method are required when advance is paid', 400);
+          }
+          paymentAccount = await AccountHead.findOne({ code: paymentAccountCode });
+          if (!paymentAccount || paymentAccount.type !== 'Asset') {
+            return errorResponse('Select an asset account for the advance payment', 400);
+          }
+        }
+
+        const currentReceivable = Number(customer.currentReceivableBalance || 0);
+        const creditLimit = Number(customer.creditLimitPKR || 0);
+        if (!Number.isFinite(currentReceivable) || currentReceivable < 0 ||
+          !Number.isFinite(creditLimit) || creditLimit < 0 ||
+          currentReceivable + grandTotal - paid > creditLimit) {
+          return errorResponse('The order would exceed the customer credit limit', 409);
+        }
+
+        // Validate stock availability for all items before any write
+        const requestedByArticle = new Map();
+        for (const item of quotation.items || []) {
+          if (!item || typeof item.articleCode !== 'string' || !item.articleCode.trim()) {
+            return errorResponse('Every quotation line must reference a design article', 400);
+          }
+          const quantity = Number(item.quantity);
+          if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+            return errorResponse('Each quotation item requires a positive whole-number quantity', 400);
+          }
+          requestedByArticle.set(item.articleCode, (requestedByArticle.get(item.articleCode) || 0) + quantity);
+        }
+
+        const lockedDesigns = new Map();
+        for (const articleCode of [...requestedByArticle.keys()].sort()) {
+          const existingDesign = await DesignArticle.findOne({
+            designCode: articleCode,
+            sampleStatus: 'ProductionReady',
+          });
+          const design = existingDesign
+            ? await DesignArticle.findByIdForUpdate(existingDesign._id)
+            : null;
+          if (!design || design.sampleStatus !== 'ProductionReady') {
+            return errorResponse(`Article ${articleCode} is not available for sale`, 400);
+          }
+          const stock = getWarehouseStock(design, 'finishedGoodsStock', normalizedWarehouse);
+          if (!Number.isSafeInteger(stock) || stock < requestedByArticle.get(articleCode)) {
+            return errorResponse(`Insufficient finished stock for ${articleCode}`, 409);
+          }
+          lockedDesigns.set(articleCode, design);
+        }
+
+        const sequence = await allocateSequence('sales_order');
+        const year = new Date().getFullYear();
+        const orderNumber = `SO-${year}-${String(sequence).padStart(4, '0')}`;
+        const invoiceNumber = `INV-${year}-${String(sequence).padStart(4, '0')}`;
+        const paymentStatus = paid >= grandTotal ? 'PaidInFull' : paid > 0 ? 'PartiallyPaid' : 'Unpaid';
+
+        const order = await SalesOrder.create({
+          creationRequestId: randomUUID(),
+          orderNumber,
+          invoiceNumber,
+          customerId: customer._id,
+          customerName: quotation.customerName,
+          customerTier: quotation.customerTier || '',
+          orderDate: new Date(),
+          deliveryDueDate: deliveryDueDate || null,
+          status: 'Confirmed',
+          items: quotation.items,
+          subtotal: Number(quotation.subtotal),
+          totalDiscount: Number(quotation.totalDiscount),
+          shippingFee: shipping,
+          grandTotal,
+          amountPaid: paid,
+          paymentStatus,
+          revenueAccountCode: revenueAccount.code,
+          receivableAccountCode: receivableAccount.code,
+          salesRep: quotation.salesRep || '',
+          notes: quotation.notes || '',
+          inventoryStatus: 'Deducted',
+          warehouseLocation: normalizedWarehouse,
+          sourceQuotationId: quotation._id,
+          sourceQuotationNumber: quotation.quotationNumber,
+        });
+
+        const salesJournalLines = [];
+        if (paid > 0) {
+          salesJournalLines.push({
+            accountCode: paymentAccount.code,
+            debit: paid,
+            credit: 0,
+            memo: `Advance received for ${orderNumber} (${paymentMethod})`,
+          });
+        }
+        if (grandTotal - paid > 0) {
+          salesJournalLines.push({
+            accountCode: receivableAccount.code,
+            debit: grandTotal - paid,
+            credit: 0,
+            memo: `Receivable for ${orderNumber}`,
+          });
+        }
+        salesJournalLines.push({
+          accountCode: revenueAccount.code,
+          debit: 0,
+          credit: grandTotal,
+          memo: `Sales revenue for ${orderNumber}`,
+        });
+
+        const { entry: salesJournal, duplicate: journalDuplicate } = await postBalancedJournalEntry({
+          sourceKey: `SALES_QUOTE_CONVERT:${quotation._id}`,
+          voucherType: 'SalesInvoice',
+          narration: `Sales invoice ${invoiceNumber}`,
+          referenceNumber: orderNumber,
+          postedBy: quotation.salesRep || '',
+          lines: salesJournalLines,
+        });
+        if (journalDuplicate) {
+          return errorResponse('A journal entry already exists for this conversion', 409);
+        }
+
+        order.financialEntryId = salesJournal._id;
+        order.initialPaymentMethod = paid > 0 ? paymentMethod : '';
+
+        // COGS posting for converted order
+        const cogsMappingResult = await resolveAndValidateMapping(mappings, 'cogsAccountCode', 'CostOfGoodsSold');
+        const inventoryMappingResult = await resolveAndValidateMapping(mappings, 'inventoryAccountCode', 'Asset');
+        let totalCogs = 0;
+        let cogsBlocked = false;
+        if (!cogsMappingResult.error && !inventoryMappingResult.error &&
+          cogsMappingResult.account && inventoryMappingResult.account) {
+          for (const [articleCode, quantity] of requestedByArticle) {
+            const design = lockedDesigns.get(articleCode);
+            const costPerUnit = Number(design?.finishedGoodsCostPerUnit || 0);
+            if (!costPerUnit || costPerUnit <= 0) {
+              cogsBlocked = true;
+              break;
+            }
+            totalCogs += Math.round(costPerUnit * quantity * 100) / 100;
+          }
+          if (!cogsBlocked && totalCogs > 0) {
+            const { entry: cogsJournal } = await postBalancedJournalEntry({
+              sourceKey: `SALES_COGS:${order._id}`,
+              voucherType: 'COGS',
+              narration: `Cost of goods sold for ${orderNumber}`,
+              referenceNumber: orderNumber,
+              postedBy: quotation.salesRep || '',
+              lines: [
+                {
+                  accountCode: cogsMappingResult.account.code,
+                  accountName: cogsMappingResult.account.name,
+                  debit: totalCogs,
+                  credit: 0,
+                  memo: `COGS for ${orderNumber}`,
+                },
+                {
+                  accountCode: inventoryMappingResult.account.code,
+                  accountName: inventoryMappingResult.account.name,
+                  debit: 0,
+                  credit: totalCogs,
+                  memo: `Finished goods inventory relieved for ${orderNumber}`,
+                },
+              ],
+            });
+            order.cogsJournalId = cogsJournal._id;
+          }
+        }
+
+        for (const [articleCode, quantity] of requestedByArticle) {
+          const design = lockedDesigns.get(articleCode);
+          if (!adjustWarehouseStock(design, 'finishedGoodsStock', normalizedWarehouse, -quantity)) {
+            return errorResponse(`Finished stock at ${normalizedWarehouse} changed before conversion`, 409);
+          }
+          recordInventoryMovement(design, {
+            type: 'SALES_ORDER',
+            quantity,
+            unit: 'Pieces',
+            direction: 'OUT',
+            referenceType: 'SalesOrder',
+            referenceId: order._id,
+            referenceNumber: orderNumber,
+            sourceItemId: articleCode,
+            warehouseLocation: normalizedWarehouse,
+          });
+          await design.save();
+        }
+
+        customer.currentReceivableBalance = currentReceivable + grandTotal - paid;
+        await customer.save();
+        await order.save();
+
+        quotation.status = 'Converted';
+        quotation.convertedOrderId = order._id;
+        quotation.convertedOrderNumber = orderNumber;
+        await quotation.save();
+
+        await AuditLog.create({
+          userName: '',
+          action: 'CONVERT',
+          module: 'Sales & Invoicing',
+          recordId: orderNumber,
+          description: `Converted sales quotation ${quotation.quotationNumber} to Sales Order ${orderNumber}`,
+        });
+
+        return successResponse({ salesOrder: order, salesQuotation: quotation }, 'Sales quotation converted to order');
+      });
     }
 
     if (action === 'DELETE_SALES_ORDER') {

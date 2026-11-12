@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
-import { authorizeUser, getAuthenticatedUser } from '@/lib/authorization.js';
+import { authorizeUser, getAuthenticatedUser, validateCsrfToken } from '@/lib/authorization.js';
 import { runInTransaction } from '@/lib/db.js';
 import { errorResponse, forbiddenResponse, fromError, notFoundResponse, successResponse } from '@/lib/api-response.js';
 import { canAccessModule } from '@/lib/role-access.js';
@@ -126,6 +126,11 @@ export async function POST(request) {
     if (!RECORD_MODELS[resourceModule]) return errorResponse('A supported module is required', 400);
     const { user, response } = await authorizeUser(resourceModule, 'edit');
     if (response) return response;
+
+    // CSRF protection for state-changing attachment upload
+    const csrfError = await validateCsrfToken(request);
+    if (csrfError) return csrfError;
+
     const formData = await request.formData();
     const recordId = String(formData.get('recordId') || '');
     const file = formData.get('file');
@@ -179,6 +184,11 @@ export async function DELETE(request) {
     const body = await request.json();
     const { user, response } = await getAuthenticatedUser();
     if (response) return response;
+
+    // CSRF protection for state-changing attachment deletion
+    const csrfError = await validateCsrfToken(request);
+    if (csrfError) return csrfError;
+
     const attachment = await Attachment.findById(String(body.attachmentId || ''));
     if (!attachment) return notFoundResponse('Attachment not found');
     if (!await canAccessModule(user, attachment.module, 'delete')) return forbiddenResponse();

@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Megaphone,
   Plus,
@@ -17,6 +19,7 @@ import {
   CheckCircle2,
   DollarSign,
   TrendingUp,
+  Eye,
 } from 'lucide-react';
 
 export default function MarketingCRMPage() {
@@ -29,6 +32,8 @@ export default function MarketingCRMPage() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [editingCampaign, setEditingCampaign] = useState(null);
+  const [viewLead, setViewLead] = useState(null);
+  const [viewCampaign, setViewCampaign] = useState(null);
   const [newCampaign, setNewCampaign] = useState({
     campaignTitle: '',
     seasonOrTheme: '',
@@ -57,7 +62,7 @@ export default function MarketingCRMPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/crm');
+      const res = await apiFetch('/api/crm');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -76,7 +81,7 @@ export default function MarketingCRMPage() {
   const handleCreateLead = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/crm', {
+      const res = await apiFetch('/api/crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_LEAD', ...newLead }),
@@ -97,7 +102,7 @@ export default function MarketingCRMPage() {
   const handleCreateCampaign = async (event) => {
     event.preventDefault();
     try {
-      const response = await fetch('/api/crm', {
+      const response = await apiFetch('/api/crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_CAMPAIGN', ...newCampaign }),
@@ -118,7 +123,7 @@ export default function MarketingCRMPage() {
 
   const handleUpdateLead = async (leadId, updates) => {
     try {
-      const response = await fetch('/api/crm', {
+      const response = await apiFetch('/api/crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_LEAD', leadId, ...updates }),
@@ -140,7 +145,7 @@ export default function MarketingCRMPage() {
 
   const handleUpdateCampaign = async (campaignId, updates) => {
     try {
-      const response = await fetch('/api/crm', {
+      const response = await apiFetch('/api/crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_CAMPAIGN', campaignId, ...updates }),
@@ -174,7 +179,7 @@ export default function MarketingCRMPage() {
     if (!selectedLead) return;
 
     try {
-      const res = await fetch('/api/crm', {
+      const res = await apiFetch('/api/crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,6 +273,14 @@ export default function MarketingCRMPage() {
               </div>
               <button
                 type="button"
+                onClick={() => setViewCampaign(camp)}
+                className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                <Eye className="w-3 h-3 mr-1" />
+                View Details
+              </button>
+              <button
+                type="button"
                 onClick={() => setEditingCampaign(camp)}
                 className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
               >
@@ -331,6 +344,14 @@ export default function MarketingCRMPage() {
                       </td>
                       <td className="py-3 px-4 text-slate-600 max-w-xs truncate">{l.lastDiscussionSummary}</td>
                       <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setViewLead(l)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 mr-2 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors"
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View
+                        </button>
                         <button
                           type="button"
                           onClick={() => setEditingLead(l)}
@@ -568,6 +589,46 @@ export default function MarketingCRMPage() {
           title={`Edit Campaign: ${editingCampaign?.campaignTitle || ''}`}
           fields={CRM_CAMPAIGN_EDIT_FIELDS}
           onSave={handleUpdateCampaign}
+        />
+
+        {/* View Lead Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewLead)}
+          onClose={() => setViewLead(null)}
+          record={viewLead}
+          title={`Lead: ${viewLead?.leadCode || ''} — ${viewLead?.contactPerson || ''}`}
+          subtitle={`Company: ${viewLead?.companyName || ''} • Stage: ${viewLead?.stage || ''}`}
+          fields={[
+            { name: 'leadCode', label: 'Lead Code', type: 'text' },
+            { name: 'contactPerson', label: 'Contact Person', type: 'text' },
+            { name: 'companyName', label: 'Company / Brand', type: 'text' },
+            { name: 'phone', label: 'Phone', type: 'text' },
+            { name: 'email', label: 'Email', type: 'text' },
+            { name: 'channel', label: 'Lead Channel', type: 'text' },
+            { name: 'stage', label: 'Pipeline Stage', type: 'text' },
+            { name: 'estimatedOrderValuePKR', label: 'Estimated Order Value (PKR)', type: 'money' },
+            { name: 'assignedSalesOfficer', label: 'Assigned Sales Officer', type: 'text' },
+            { name: 'nextFollowUpDate', label: 'Next Follow-up Date', type: 'date' },
+            { name: 'lastDiscussionSummary', label: 'Last Discussion Summary', type: 'text' },
+          ]}
+        />
+
+        {/* View Campaign Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewCampaign)}
+          onClose={() => setViewCampaign(null)}
+          record={viewCampaign}
+          title={`Campaign: ${viewCampaign?.campaignTitle || ''}`}
+          subtitle={`Theme: ${viewCampaign?.seasonOrTheme || ''} • Status: ${viewCampaign?.status || ''}`}
+          fields={[
+            { name: 'campaignTitle', label: 'Campaign Title', type: 'text' },
+            { name: 'seasonOrTheme', label: 'Season / Theme', type: 'text' },
+            { name: 'targetAudience', label: 'Target Audience', type: 'text' },
+            { name: 'budgetPKR', label: 'Budget (PKR)', type: 'money' },
+            { name: 'actualSpendPKR', label: 'Actual Spend (PKR)', type: 'money' },
+            { name: 'revenueGeneratedPKR', label: 'Revenue Generated (PKR)', type: 'money' },
+            { name: 'status', label: 'Campaign Status', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

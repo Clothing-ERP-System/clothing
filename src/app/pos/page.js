@@ -4,8 +4,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import ReceiptModal from '@/components/ReceiptModal';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Store,
   Barcode,
@@ -21,6 +23,7 @@ import {
   Sparkles,
   ArrowRight,
   RotateCcw,
+  Eye,
 } from 'lucide-react';
 
 export default function RetailPOSPage() {
@@ -59,10 +62,12 @@ export default function RetailPOSPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [refundMethod, setRefundMethod] = useState('Cash');
   const checkoutRequestId = useRef(null);
+  // View transaction modal
+  const [viewTransaction, setViewTransaction] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/pos?branch=${encodeURIComponent(currentBranch)}`);
+      const res = await apiFetch(`/api/pos?branch=${encodeURIComponent(currentBranch)}`);
       const json = await res.json();
       if (json.success) {
         setSession(json.data.activeSession);
@@ -85,7 +90,7 @@ export default function RetailPOSPage() {
     event.preventDefault();
     if (!cancelTransaction) return;
     try {
-      const response = await fetch('/api/pos', {
+      const response = await apiFetch('/api/pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,7 +126,7 @@ export default function RetailPOSPage() {
   const handleOpenShift = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/pos', {
+      const response = await apiFetch('/api/pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -230,7 +235,7 @@ export default function RetailPOSPage() {
       if (!checkoutRequestId.current) {
         checkoutRequestId.current = globalThis.crypto.randomUUID();
       }
-      const res = await fetch('/api/pos', {
+      const res = await apiFetch('/api/pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -282,7 +287,7 @@ export default function RetailPOSPage() {
     if (!session) return;
 
     try {
-      const res = await fetch('/api/pos', {
+      const res = await apiFetch('/api/pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -711,6 +716,14 @@ export default function RetailPOSPage() {
                     <td className="py-3 px-4">{transaction.paymentMethod}</td>
                     <td className="py-3 px-4">{transaction.status}</td>
                     <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setViewTransaction(transaction)}
+                        className="mr-2 px-2.5 py-1 text-[11px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100"
+                      >
+                        <Eye className="w-3 h-3 mr-1" />
+                        View
+                      </button>
                       {session?.status === 'Open' && transaction.status === 'Completed' && (
                         <button
                           type="button"
@@ -878,6 +891,50 @@ export default function RetailPOSPage() {
           isOpen={isReceiptOpen}
           onClose={() => setIsReceiptOpen(false)}
           transaction={lastTransaction}
+        />
+
+        {/* View POS Transaction Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewTransaction)}
+          onClose={() => setViewTransaction(null)}
+          record={viewTransaction}
+          title={`POS Receipt: ${viewTransaction?.receiptNumber || ''}`}
+          subtitle={`Cashier: ${viewTransaction?.cashierName || ''} • Method: ${viewTransaction?.paymentMethod || ''}`}
+          fields={[
+            { name: 'receiptNumber', label: 'Receipt Number', type: 'text' },
+            { name: 'sessionId', label: 'Session ID', type: 'text' },
+            { name: 'checkoutRequestId', label: 'Checkout Request ID', type: 'text' },
+            { name: 'outletBranch', label: 'Outlet Branch', type: 'text' },
+            { name: 'cashierName', label: 'Cashier', type: 'text' },
+            { name: 'customerName', label: 'Customer Name', type: 'text' },
+            { name: 'customerPhone', label: 'Customer Phone', type: 'text' },
+            { name: 'paymentMethod', label: 'Payment Method', type: 'text' },
+            { name: 'status', label: 'Status', type: 'text' },
+            { name: 'subtotal', label: 'Subtotal', type: 'money' },
+            { name: 'discountTotal', label: 'Discount Total', type: 'money' },
+            { name: 'grandTotal', label: 'Grand Total', type: 'money' },
+            { name: 'cashTendered', label: 'Cash Tendered', type: 'money' },
+            { name: 'changeGiven', label: 'Change Given', type: 'money' },
+            { name: 'totalItemsCount', label: 'Total Items', type: 'text' },
+            {
+              name: 'items',
+              label: 'Cart Items',
+              type: 'array',
+              itemFields: [
+                { name: 'articleCode', label: 'Article Code' },
+                { name: 'title', label: 'Title' },
+                { name: 'barcode', label: 'Barcode' },
+                { name: 'size', label: 'Size' },
+                { name: 'color', label: 'Color' },
+                { name: 'price', label: 'Price', type: 'money' },
+                { name: 'quantity', label: 'Quantity', type: 'text' },
+                { name: 'discountPercent', label: 'Discount %', type: 'text' },
+                { name: 'discountAmount', label: 'Discount Amount', type: 'money' },
+                { name: 'subtotal', label: 'Subtotal', type: 'money' },
+              ],
+            },
+            { name: 'splitDetails', label: 'Split Payment Details', type: 'object' },
+          ]}
         />
       </div>
     </Layout>

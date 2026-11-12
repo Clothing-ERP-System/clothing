@@ -1,5 +1,6 @@
 import { allocateSequence, connectDB } from '@/lib/db.js';
 import { CRMLead, MarketingCampaign } from '@/models/CRM.js';
+import Customer from '@/models/Customer.js';
 import AuditLog from '@/models/AuditLog.js';
 import { successResponse, errorResponse, fromError } from '@/lib/api-response.js';
 import { applyListQuery, deleteRecord, parseListQuery, pickFields } from '@/lib/query.js';
@@ -153,6 +154,52 @@ async function postCrm(request) {
       const campaign = await deleteRecord(MarketingCampaign, body.campaignId);
       if (!campaign) return errorResponse('Campaign not found', 404);
       return successResponse({ campaign }, 'Campaign deleted');
+    }
+
+    if (action === 'CONVERT_LEAD_TO_CUSTOMER') {
+      const { leadId, customerName, phone, email, billingAddress, salesRepresentative } = body;
+      const lead = await CRMLead.findByIdForUpdate(leadId);
+      if (!lead) return errorResponse('Lead not found', 404);
+      if (lead.stage !== 'WonOrder') {
+        return errorResponse('Only a lead at the WonOrder stage can be converted to a customer', 400);
+      }
+      if (lead.convertedToCustomerId) {
+        return errorResponse('This lead has already been converted to a customer', 409);
+      }
+      const name = String(customerName || lead.companyName || lead.contactPerson || '').trim();
+      const contactPhone = String(phone || lead.phone || '').trim();
+      if (!name || !contactPhone) {
+        return errorResponse('Customer name and phone are required for conversion', 400);
+      }
+      // Duplicate customer check: same name + phone
+      const existing = await Customer.findOne({ customerName: name, phone: contactPhone });
+      if (existing) {
+        return errorResponse(`A customer named "${name}" with this phone number already exists (${existing.customerCode})`, 409);
+      }
+      const sequence = await allocateSequence('customer');
+      const customerCode = `CUST-${new Date().getFullYear()}-${String(sequence).padStart(4, '0')}`;
+      const customer = await Customer.create({
+        customerCode,
+        customerName: name,
+        phone: contactPhone,
+        email: String(email || lead.email || '').trim(),
+        billingAddress: String(billingAddress || '').trim(),
+        salesRepresentative: String(salesRepresentative || lead.assignedSalesOfficer || '').trim(),
+        leadSource: lead.channel || '',
+        leadCode: lead.leadCode,
+        isActive: true,
+      });
+      // Mark lead as converted
+      lead.convertedToCustomerId = customer._id;
+      await lead.save();
+      await AuditLog.create({
+        userName: String(body.postedBy || ''),
+        action: 'CONVERT',
+        module: 'CRM',
+        recordId: lead.leadCode,
+        description: `Converted lead ${lead.leadCode} to customer ${customerCode} (${name})`,
+      });
+      return successResponse({ customer, lead }, 'Lead converted to customer', 201);
     }
 
     return errorResponse('Invalid action', 400);

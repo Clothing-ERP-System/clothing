@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { apiFetch } from '@/lib/apiFetch.js';
 
 export default function RecordDeleteButton({
   endpoint,
@@ -21,7 +22,7 @@ export default function RecordDeleteButton({
     if (deleting) return;
     setDeleting(true);
     try {
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, [idField]: recordId, ...extraBody }),
@@ -50,7 +51,7 @@ export default function RecordDeleteButton({
       type="button"
       onClick={handleDelete}
       disabled={deleting}
-      className={`disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center justify-center whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
     >
       {deleting ? 'Deleting…' : 'Delete'}
     </button>

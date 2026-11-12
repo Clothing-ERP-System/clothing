@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   Package,
   Plus,
@@ -16,6 +18,7 @@ import {
   CheckCircle,
   Tag,
   Warehouse,
+  Eye,
 } from 'lucide-react';
 
 export default function TrimsInventoryPage() {
@@ -30,6 +33,7 @@ export default function TrimsInventoryPage() {
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   const [selectedTrim, setSelectedTrim] = useState(null);
   const [editingTrim, setEditingTrim] = useState(null);
+  const [viewTrim, setViewTrim] = useState(null);
 
   // New Trim Form
   const [newTrim, setNewTrim] = useState({
@@ -52,7 +56,7 @@ export default function TrimsInventoryPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/trims');
+      const res = await apiFetch('/api/trims');
       const json = await res.json();
       if (json.success) {
         setTrims(json.data.trims || []);
@@ -71,7 +75,7 @@ export default function TrimsInventoryPage() {
   const handleCreateTrim = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/trims', {
+      const res = await apiFetch('/api/trims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_TRIM', ...newTrim }),
@@ -91,7 +95,7 @@ export default function TrimsInventoryPage() {
 
   const handleUpdateTrim = async (trimId, updates) => {
     try {
-      const response = await fetch('/api/trims', {
+      const response = await apiFetch('/api/trims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_TRIM', trimId, ...updates }),
@@ -122,7 +126,7 @@ export default function TrimsInventoryPage() {
     if (!selectedTrim) return;
 
     try {
-      const res = await fetch('/api/trims', {
+      const res = await apiFetch('/api/trims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,6 +272,14 @@ export default function TrimsInventoryPage() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewTrim(trim)}
+                    className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors"
+                  >
+                    <Eye className="w-3 h-3" />
+                    <span>View</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setEditingTrim(trim)}
@@ -467,6 +479,29 @@ export default function TrimsInventoryPage() {
           title={`Edit Trim: ${editingTrim?.trimCode || ''}`}
           fields={TRIM_EDIT_FIELDS}
           onSave={handleUpdateTrim}
+        />
+
+        {/* View Trim Item Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewTrim)}
+          onClose={() => setViewTrim(null)}
+          record={viewTrim}
+          title={`Trim: ${viewTrim?.trimCode || ''} — ${viewTrim?.name || ''}`}
+          subtitle={`Category: ${viewTrim?.category || ''} • Unit: ${viewTrim?.unit || ''}`}
+          fields={[
+            { name: 'trimCode', label: 'Trim Code', type: 'text' },
+            { name: 'name', label: 'Item Name', type: 'text' },
+            { name: 'category', label: 'Category', type: 'text' },
+            { name: 'variant', label: 'Variant', type: 'text' },
+            { name: 'color', label: 'Color', type: 'text' },
+            { name: 'unit', label: 'Unit of Measure', type: 'text' },
+            { name: 'currentStock', label: 'Current Stock', type: 'text' },
+            { name: 'minimumStock', label: 'Minimum Stock Level', type: 'text' },
+            { name: 'unitCost', label: 'Unit Cost (PKR)', type: 'money' },
+            { name: 'supplierName', label: 'Supplier', type: 'text' },
+            { name: 'binLocation', label: 'Bin / Rack Location', type: 'text' },
+            { name: 'warehouseLocation', label: 'Warehouse Location', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

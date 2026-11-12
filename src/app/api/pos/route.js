@@ -1,4 +1,4 @@
-import { allocateSequence, connectDB } from '@/lib/db.js';
+import { allocateSequence, connectDB, runInTransaction } from '@/lib/db.js';
 import { POSSession, POSTransaction } from '@/models/POS.js';
 import DesignArticle from '@/models/Design.js';
 import { AccountHead } from '@/models/Accounting.js';
@@ -8,6 +8,7 @@ import { applyListQuery, parseListQuery } from '@/lib/query.js';
 import { withAuthorization } from '@/lib/authorization.js';
 import { adjustWarehouseStock, getWarehouseStock, recordInventoryMovement } from '@/lib/inventory.js';
 import { postBalancedJournalEntry } from '@/lib/accounting.js';
+import { resolveAndValidateMapping, validateMappingsPresent, getCompanyContext } from '@/lib/accounting-mappings.js';
 
 async function getPos(request) {
   try {
@@ -93,6 +94,7 @@ async function postPos(request) {
     }
 
     if (action === 'COMPLETE_CHECKOUT') {
+      return await runInTransaction(async () => {
       const {
         sessionId,
         cashierName,
@@ -230,10 +232,16 @@ async function postPos(request) {
         return errorResponse('Cash tendered cannot be less than the sale total', 400);
       }
       const changeGiven = Math.max(0, tendered - grandTotal);
-      const revenueAccount = await AccountHead.findOne({ code: revenueAccountCode });
-      if (!revenueAccount || revenueAccount.type !== 'Revenue') {
-        return errorResponse('Select a configured revenue account for POS sales', 400);
-      }
+      // Resolve POS revenue account from company mappings
+      const company = await getCompanyContext();
+      const mappings = company && company.accountingMappings ? company.accountingMappings : {};
+      const missingMappingErr = validateMappingsPresent(mappings, [
+        'salesRevenueAccountCode',
+      ], 'POS checkout');
+      if (missingMappingErr) return errorResponse(missingMappingErr, 409);
+      const revenueResult = await resolveAndValidateMapping(mappings, 'salesRevenueAccountCode', 'Revenue');
+      if (revenueResult.error) return errorResponse(revenueResult.error, 400);
+      const revenueAccount = revenueResult.account;
       let paymentLines;
       if (paymentMethod === 'Split') {
         if (!Array.isArray(splitDetails) || splitDetails.length < 2) {
@@ -259,9 +267,19 @@ async function postPos(request) {
           return errorResponse('Split payment allocations must equal the sale total', 400);
         }
       } else {
+        // Resolve POS payment account from company mappings based on payment method
+        let paymentAccountCode = null;
+        if (paymentMethod === 'Cash') {
+          paymentAccountCode = mappings.cashAccountCode;
+        } else if (paymentMethod === 'BankTransfer' || paymentMethod === 'CreditCard') {
+          paymentAccountCode = mappings.bankAccountCode;
+        }
+        if (!paymentAccountCode) {
+          return errorResponse(`No ${paymentMethod.toLowerCase()} account configured in company accounting mappings`, 409);
+        }
         const paymentAccount = await AccountHead.findOne({ code: paymentAccountCode });
         if (!paymentAccount || paymentAccount.type !== 'Asset') {
-          return errorResponse('Select a configured asset account for POS receipts', 400);
+          return errorResponse(`Configured ${paymentMethod.toLowerCase()} account must be an asset account`, 400);
         }
         paymentLines = [{
           accountCode: paymentAccount.code,
@@ -347,9 +365,13 @@ async function postPos(request) {
       });
 
       return successResponse({ transaction }, 'POS transaction completed');
+      });
     }
 
     if (action === 'CANCEL_TRANSACTION') {
+      return await runInTransaction(async () => {
+      const company = await getCompanyContext();
+      const mappings = company && company.accountingMappings ? company.accountingMappings : {};
       const transaction = await POSTransaction.findByIdForUpdate(body.transactionId);
       if (!transaction) return errorResponse('Transaction not found', 404);
       if (transaction.status === 'Cancelled') return errorResponse('This transaction has already been cancelled', 409);
@@ -403,11 +425,18 @@ async function postPos(request) {
         }
         session.expectedCash = expectedCash - refundAmount;
       }
-      const salesReturnsAccount = await AccountHead.findOne({ code: body.salesReturnsAccountCode });
-      const refundAccount = await AccountHead.findOne({ code: body.refundAccountCode });
-      if (!salesReturnsAccount || salesReturnsAccount.type !== 'Revenue' ||
-        !refundAccount || refundAccount.type !== 'Asset') {
-        return errorResponse('Select a revenue returns account and an asset refund account', 400);
+      // Resolve POS refund accounts from company mappings
+      const returnsResult = await resolveAndValidateMapping(mappings, 'salesReturnsAccountCode', 'Revenue');
+      if (returnsResult.error) return errorResponse(returnsResult.error, 409);
+      const salesReturnsAccount = returnsResult.account;
+
+      const refundAccountCode = mappings.cashAccountCode || mappings.bankAccountCode;
+      if (!refundAccountCode) {
+        return errorResponse('No cash or bank account configured for POS refunds', 409);
+      }
+      const refundAccount = await AccountHead.findOne({ code: refundAccountCode });
+      if (!refundAccount || refundAccount.type !== 'Asset') {
+        return errorResponse('Configured refund account must be an asset account', 400);
       }
       const { entry: refundJournal } = await postBalancedJournalEntry({
         sourceKey: `POS_REFUND:${transaction._id}`,
@@ -459,6 +488,7 @@ async function postPos(request) {
         description: `Cancelled POS receipt ${transaction.receiptNumber} and recorded a ${refundMethod} refund`,
       });
       return successResponse({ transaction }, 'POS transaction cancelled and stock restored');
+      });
     }
 
     if (action === 'DELETE_TRANSACTION') {

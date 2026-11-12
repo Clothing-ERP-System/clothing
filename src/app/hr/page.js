@@ -5,8 +5,10 @@ import Layout from '@/components/Layout';
 import Modal from '@/components/Modal';
 import RecordEditModal from '@/components/RecordEditModal';
 import RecordDeleteButton from '@/components/RecordDeleteButton';
+import RecordViewModal from '@/components/RecordViewModal';
 import { useAuth } from '@/context/AuthContext';
 import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
+import { apiFetch } from '@/lib/apiFetch.js';
 import {
   UserCheck,
   Plus,
@@ -18,6 +20,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   UserPlus,
+  Eye,
 } from 'lucide-react';
 
 export default function HRBiometricsPage() {
@@ -33,6 +36,9 @@ export default function HRBiometricsPage() {
   const [isPayrollPaymentOpen, setIsPayrollPaymentOpen] = useState(false);
   const [selectedPayrollSlip, setSelectedPayrollSlip] = useState(null);
   const [editingEmployee, setEditingEmployee] = useState(null);
+  const [viewEmployee, setViewEmployee] = useState(null);
+  const [viewAttendance, setViewAttendance] = useState(null);
+  const [viewPayroll, setViewPayroll] = useState(null);
 
   // New Emp Form
   const [newEmp, setNewEmp] = useState({
@@ -75,7 +81,7 @@ export default function HRBiometricsPage() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/hr');
+      const res = await apiFetch('/api/hr');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -102,7 +108,7 @@ export default function HRBiometricsPage() {
   const handleCreateEmp = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/hr', {
+      const res = await apiFetch('/api/hr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'CREATE_EMPLOYEE', ...newEmp }),
@@ -122,7 +128,7 @@ export default function HRBiometricsPage() {
 
   const handleUpdateEmployee = async (employeeId, updates) => {
     try {
-      const response = await fetch('/api/hr', {
+      const response = await apiFetch('/api/hr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'UPDATE_EMPLOYEE', employeeId, ...updates }),
@@ -145,7 +151,7 @@ export default function HRBiometricsPage() {
   const handlePunch = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/hr', {
+      const res = await apiFetch('/api/hr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'BIOMETRIC_PUNCH', ...punchForm }),
@@ -166,7 +172,7 @@ export default function HRBiometricsPage() {
   const handleGeneratePayroll = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/hr', {
+      const res = await apiFetch('/api/hr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'GENERATE_PAYROLL', ...payrollForm }),
@@ -199,7 +205,7 @@ export default function HRBiometricsPage() {
     event.preventDefault();
     if (!selectedPayrollSlip) return;
     try {
-      const response = await fetch('/api/hr', {
+      const response = await apiFetch('/api/hr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -344,6 +350,14 @@ export default function HRBiometricsPage() {
                 </div>
                 <button
                   type="button"
+                  onClick={() => setViewEmployee(emp)}
+                  className="w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  <Eye className="w-3 h-3 mr-1" />
+                  View Details
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEditingEmployee(emp)}
                   className="w-full rounded-lg border border-indigo-200 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
                 >
@@ -394,6 +408,7 @@ export default function HRBiometricsPage() {
                     <th className="py-3 px-4">Check-Out</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Device Reference</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -415,6 +430,15 @@ export default function HRBiometricsPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 font-mono text-slate-400 text-[11px]">{att.biometricDeviceId}</td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => setViewAttendance(att)}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -463,6 +487,7 @@ export default function HRBiometricsPage() {
                     <th className="py-3 px-4">Overtime</th>
                     <th className="py-3 px-4 font-bold text-slate-900">Net Payable</th>
                     <th className="py-3 px-4 text-right">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -497,6 +522,13 @@ export default function HRBiometricsPage() {
                               Pay
                             </button>
                           )}
+                          <button
+                            onClick={() => setViewPayroll(p)}
+                            className="px-2.5 py-1 text-[10px] font-bold rounded bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100"
+                          >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -916,6 +948,76 @@ export default function HRBiometricsPage() {
           title={`Edit Employee: ${editingEmployee?.employeeCode || ''}`}
           fields={EMPLOYEE_EDIT_FIELDS}
           onSave={handleUpdateEmployee}
+        />
+
+        {/* View Employee Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewEmployee)}
+          onClose={() => setViewEmployee(null)}
+          record={viewEmployee}
+          title={`Employee: ${viewEmployee?.employeeCode || ''} — ${viewEmployee?.name || ''}`}
+          subtitle={`${viewEmployee?.designation} • ${viewEmployee?.department} • ${viewEmployee?.employmentType}`}
+          fields={[
+            { name: 'employeeCode', label: 'Employee Code', type: 'text' },
+            { name: 'name', label: 'Employee Name', type: 'text' },
+            { name: 'designation', label: 'Designation', type: 'text' },
+            { name: 'department', label: 'Department', type: 'text' },
+            { name: 'employmentType', label: 'Employment Type', type: 'text' },
+            { name: 'cnic', label: 'CNIC', type: 'text' },
+            { name: 'phone', label: 'Contact Phone', type: 'text' },
+            { name: 'baseSalaryPKR', label: 'Base Monthly Salary (PKR)', type: 'money' },
+            { name: 'pieceRatePerGarmentPKR', label: 'Piece Rate per Garment (PKR)', type: 'money' },
+            { name: 'biometricPin', label: 'Biometric PIN', type: 'text' },
+            { name: 'status', label: 'Employment Status', type: 'text' },
+          ]}
+        />
+
+        {/* View Attendance Record Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewAttendance)}
+          onClose={() => setViewAttendance(null)}
+          record={viewAttendance}
+          title={`Attendance: ${viewAttendance?.employeeCode || ''}`}
+          subtitle={`Date: ${viewAttendance?.date || ''} • Status: ${viewAttendance?.status || ''}`}
+          fields={[
+            { name: 'attendanceKey', label: 'Attendance Key', type: 'text' },
+            { name: 'employeeCode', label: 'Employee Code', type: 'text' },
+            { name: 'employeeName', label: 'Employee Name', type: 'text' },
+            { name: 'date', label: 'Date', type: 'date' },
+            { name: 'checkInTime', label: 'Check-In Time', type: 'text' },
+            { name: 'checkOutTime', label: 'Check-Out Time', type: 'text' },
+            { name: 'status', label: 'Attendance Status', type: 'text' },
+            { name: 'lateMinutes', label: 'Late Minutes', type: 'text' },
+            { name: 'overtimeHours', label: 'Overtime Hours', type: 'text' },
+            { name: 'biometricDeviceId', label: 'Biometric Device ID', type: 'text' },
+          ]}
+        />
+
+        {/* View Payroll Slip Modal */}
+        <RecordViewModal
+          isOpen={Boolean(viewPayroll)}
+          onClose={() => setViewPayroll(null)}
+          record={viewPayroll}
+          title={`Payslip: ${viewPayroll?.payrollKey || ''}`}
+          subtitle={`${viewPayroll?.employeeName} • ${viewPayroll?.payrollMonth || ''} • ${viewPayroll?.designation || ''}`}
+          fields={[
+            { name: 'payrollKey', label: 'Payroll Key', type: 'text' },
+            { name: 'payrollMonth', label: 'Payroll Month', type: 'text' },
+            { name: 'employeeCode', label: 'Employee Code', type: 'text' },
+            { name: 'employeeName', label: 'Employee Name', type: 'text' },
+            { name: 'designation', label: 'Designation', type: 'text' },
+            { name: 'daysWorked', label: 'Days Worked', type: 'text' },
+            { name: 'piecesProduced', label: 'Pieces Produced', type: 'text' },
+            { name: 'basicOrPiecePay', label: 'Basic / Piece Pay', type: 'money' },
+            { name: 'overtimePay', label: 'Overtime Pay', type: 'money' },
+            { name: 'allowances', label: 'Allowances', type: 'money' },
+            { name: 'taxDeduction', label: 'Tax Deduction', type: 'money' },
+            { name: 'loanAdvanceDeduction', label: 'Loan / Advance Deduction', type: 'money' },
+            { name: 'netPayablePKR', label: 'Net Payable (PKR)', type: 'money' },
+            { name: 'paymentStatus', label: 'Payment Status', type: 'text' },
+            { name: 'expenseAccountCode', label: 'Expense Account Code', type: 'text' },
+            { name: 'payableAccountCode', label: 'Payable Account Code', type: 'text' },
+          ]}
         />
       </div>
     </Layout>

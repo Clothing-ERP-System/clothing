@@ -144,6 +144,9 @@ export default function DashboardPage() {
     }
 
     if (!res.ok || !result.success) {
+      if ((res.status === 409 || !res.ok) && result?.message?.includes('No company is configured')) {
+        return { needsOnboarding: true, company: null };
+      }
       throw new Error(result?.message || `Unable to load dashboard data (HTTP ${res.status})`);
     }
     return result.data;
@@ -432,8 +435,8 @@ export default function DashboardPage() {
     );
   }
 
-  if (error || !data) {
-    const needsOnboarding = error?.includes('onboarding') || error?.includes('No company is configured');
+  if (error || !data || data.needsOnboarding || !data.company) {
+    const needsOnboarding = data?.needsOnboarding || !data?.company || error?.includes('onboarding') || error?.includes('No company is configured');
     if (needsOnboarding) {
       return (
         <Layout>
@@ -539,7 +542,7 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 relative z-10">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {data?.company?.companyName || 'Dawley institute of technology'} — <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
+              {data?.company?.companyName || 'ERP DOST'} — <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Real-time business overview · {rangeLabel(range)} · Base Currency: {currencySymbol} ({data?.company?.currency || 'PKR'})

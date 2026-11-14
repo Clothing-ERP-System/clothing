@@ -201,9 +201,30 @@ async function getDashboardData(request, user) {
     const range = searchParams.get('range') || 'month';
     const section = searchParams.get('section') || 'all';
 
-    const company = await getCompanyContext();
+    let company = null;
+    try {
+      company = await getCompanyContext();
+    } catch (companyError) {
+      if (companyError?.message?.includes('No company is configured')) {
+        company = null;
+      } else {
+        throw companyError;
+      }
+    }
+
     if (!company) {
-      return errorResponse('No company is configured. Complete client onboarding first.', 409);
+      return successResponse({
+        company: null,
+        needsOnboarding: true,
+        summaryCards: [],
+        branchStock: [],
+        recentActivity: [],
+        salesProfitStats: { labels: [], sales: [], profits: [] },
+        paymentDue: [],
+        stockAlerts: [],
+        currency: 'PKR',
+        currencySymbol: 'Rs.',
+      }, 'No company is configured. Client onboarding required.');
     }
 
     const currency = String(company.currency || 'PKR');
@@ -215,7 +236,7 @@ async function getDashboardData(request, user) {
 
     const result = {
       company: {
-        companyName: company.companyName || company.name || 'Dawley institute of technology',
+        companyName: company.companyName || company.name || 'ERP DOST',
         legalName: company.legalName || '',
         currency,
         currencySymbol,

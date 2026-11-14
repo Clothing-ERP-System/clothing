@@ -104,6 +104,7 @@ async function handleUpdateCompany(request, actor, body) {
       cogsAccountCode: 'CostOfGoodsSold',
       expenseAccountCode: 'OperatingExpense',
       salesRevenueAccountCode: 'Revenue',
+      salesReceivableAccountCode: 'Asset',
       bankAccountCode: 'Asset',
       cashAccountCode: 'Asset',
       openingBalanceEquityAccountCode: 'Equity',

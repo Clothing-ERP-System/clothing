@@ -211,6 +211,9 @@ export default function ClientOnboardingPage() {
       });
       const json = await res.json();
       if (!res.ok) { addToast(json.message || 'Company save failed', 'error'); return; }
+      if (json.data?.company) {
+        setCompany(prev => ({ ...prev, ...json.data.company }));
+      }
       addToast('Company profile saved', 'success');
       setStepStatus(prev => ({ ...prev, [0]: 'completed' }));
       handleNext();
@@ -232,6 +235,9 @@ export default function ClientOnboardingPage() {
       });
       const json = await res.json();
       if (!res.ok) { addToast(json.message || 'Financial settings save failed', 'error'); return; }
+      if (json.data?.company) {
+        setCompany(prev => ({ ...prev, ...json.data.company }));
+      }
       addToast('Financial year and currency saved', 'success');
       setStepStatus(prev => ({ ...prev, [1]: 'completed' }));
       handleNext();
@@ -310,6 +316,9 @@ export default function ClientOnboardingPage() {
       });
       const json = await res.json();
       if (!res.ok) { addToast(json.message || 'Tax settings save failed', 'error'); return; }
+      if (json.data?.company) {
+        setCompany(prev => ({ ...prev, ...json.data.company }));
+      }
       addToast('Tax settings saved', 'success');
       setStepStatus(prev => ({ ...prev, [4]: 'completed' }));
       handleNext();
@@ -359,7 +368,7 @@ export default function ClientOnboardingPage() {
         if (mappingKey) accountingMappings[mappingKey] = acc.code;
       }
 
-      // Save accounts FIRST so they exist before company mappings reference them.
+      // 1. Save accounts FIRST so they exist before company mappings reference them.
       for (const acc of accounts) {
         const res = await apiFetch('/api/finance', {
           method: 'POST',
@@ -367,7 +376,7 @@ export default function ClientOnboardingPage() {
           body: JSON.stringify({ action: 'CREATE_ACCOUNT', ...acc }),
         });
         if (!res.ok) {
-          const json = await res.json();
+          const json = await res.json().catch(() => ({}));
           if (!json.message || !json.message.includes('already exists')) {
             addToast(json.message || 'Failed to create account ' + acc.code, 'error');
             return;
@@ -375,42 +384,76 @@ export default function ClientOnboardingPage() {
         }
       }
 
-      // Save company profile with accounting mappings and mark onboarding complete.
+      // 2. Ensure locations are saved in Location collection (skip if already created in step 3)
+      for (const loc of locations) {
+        try {
+          const locRes = await apiFetch('/api/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'CREATE_LOCATION', ...loc }),
+          });
+          if (!locRes.ok) {
+            const locJson = await locRes.json().catch(() => ({}));
+            if (!locJson?.message?.includes('already exists')) {
+              console.warn('Location creation notice:', locJson?.message);
+            }
+          }
+        } catch (locErr) {
+          console.warn('Location creation notice:', locErr);
+        }
+      }
+
+      // 3. Format locations for company document
+      const formattedLocations = locations.map(loc => ({
+        warehouseName: loc.warehouseName || loc.locationCode || 'Main Warehouse',
+        locationCode: loc.locationCode || '',
+        zone: loc.zone || '',
+        aisle: loc.aisle || '',
+        rack: loc.rack || '',
+        shelf: loc.shelf || '',
+        bin: loc.bin || '',
+        capacityMetersOrUnits: Number(loc.capacityMetersOrUnits) || 10000,
+      }));
+
+      // 4. Save company profile with accounting mappings and mark onboarding complete.
       const companyRes = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'UPDATE_COMPANY',
-          ...company,
-          financialYearStart: financial.financialYearStart,
-          financialYearEnd: financial.financialYearEnd,
-          currency: financial.currency,
-          taxSettings,
+          companyName: company.companyName.trim(),
+          legalName: (company.legalName || '').trim(),
+          ntnNumber: (company.ntnNumber || '').trim(),
+          strnNumber: (company.strnNumber || '').trim(),
+          address: (company.address || '').trim(),
+          phone: (company.phone || '').trim(),
+          email: (company.email || '').trim(),
+          financialYearStart: financial.financialYearStart.trim(),
+          financialYearEnd: financial.financialYearEnd.trim(),
+          currency: financial.currency || 'PKR',
+          currencySymbol: company.currencySymbol || 'Rs.',
+          branches: company.branches || [],
+          locations: formattedLocations,
+          taxSettings: {
+            defaultTaxRate: Number(taxSettings.defaultTaxRate) || 0,
+            taxName: (taxSettings.taxName || 'Sales Tax').trim(),
+            taxRegistrationNumber: (taxSettings.taxRegistrationNumber || '').trim(),
+          },
           accountingMappings,
-          locations,  // Use locally-populated locations; company.locations is stale []
           onboardingCompleted: true,
         }),
       });
       if (!companyRes.ok) {
-        const json = await companyRes.json();
+        const json = await companyRes.json().catch(() => ({}));
         addToast(json.message || 'Failed to complete onboarding', 'error');
         return;
       }
 
-      // Save locations
-      for (const loc of locations) {
-        const locRes = await apiFetch('/api/location', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'CREATE_LOCATION', ...loc }),
-        });
-        if (!locRes.ok) {
-          const json = await locRes.json();
-          addToast(json.message || 'Failed to create location ' + loc.locationCode, 'error');
-          return;
-        }
+      const companyJson = await companyRes.json().catch(() => ({}));
+      if (companyJson?.data?.company) {
+        setCompany(prev => ({ ...prev, ...companyJson.data.company, onboardingCompleted: true }));
       }
-
+      setSetupAlreadyComplete(true);
       setActiveStep(STEPS.length - 1);
       addToast('Onboarding complete! Your ERP is configured.', 'success');
       router.push('/');

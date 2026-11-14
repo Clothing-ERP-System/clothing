@@ -24,6 +24,39 @@ import {
 
 const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'CostOfGoodsSold', 'OperatingExpense'];
 
+const ACCOUNT_TYPE_META = {
+  Asset: {
+    label: 'Assets',
+    icon: DollarSign,
+    colorClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200/80',
+  },
+  Liability: {
+    label: 'Liabilities',
+    icon: Scale,
+    colorClass: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-200/80',
+  },
+  Equity: {
+    label: 'Equity',
+    icon: Layers,
+    colorClass: 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200/80',
+  },
+  Revenue: {
+    label: 'Revenue / Income',
+    icon: TrendingUp,
+    colorClass: 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/50 border-cyan-200/80',
+  },
+  CostOfGoodsSold: {
+    label: 'Cost of Goods Sold',
+    icon: ArrowUpRight,
+    colorClass: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border-amber-200/80',
+  },
+  OperatingExpense: {
+    label: 'Operating Expenses',
+    icon: BookOpen,
+    colorClass: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 border-purple-200/80',
+  },
+};
+
 const TYPE_COLORS = {
   Asset: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
   Liability: 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800',
@@ -170,8 +203,10 @@ export default function ChartOfAccountsPage() {
         </div>
 
         {/* Type Breakdown Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           {ACCOUNT_TYPES.map((type) => {
+            const meta = ACCOUNT_TYPE_META[type] || { label: type, icon: Layers, colorClass: 'text-slate-600 bg-slate-50 border-slate-200' };
+            const Icon = meta.icon;
             const count = accounts.filter((a) => a.type === type).length;
             const isSelected = selectedType === type;
             return (
@@ -179,19 +214,28 @@ export default function ChartOfAccountsPage() {
                 key={type}
                 type="button"
                 onClick={() => setSelectedType(isSelected ? 'ALL' : type)}
-                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between min-h-[105px] ${
                   isSelected
-                    ? 'border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/50 ring-2 ring-indigo-500/30'
-                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
+                    ? 'border-indigo-600 bg-indigo-50/90 dark:bg-indigo-950/60 ring-2 ring-indigo-500/30 shadow-xs'
+                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-xs'
                 }`}
               >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate">
-                  {type}
-                </span>
-                <p className="text-lg font-black text-slate-900 dark:text-white mt-1">
-                  {count}
-                </p>
-                <span className="text-[10px] text-slate-500">Heads registered</span>
+                <div className="flex items-center justify-between gap-1.5 w-full">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 leading-tight">
+                    {meta.label}
+                  </span>
+                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border ${meta.colorClass}`}>
+                    <Icon className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <p className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {count}
+                  </p>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                    Heads registered
+                  </span>
+                </div>
               </button>
             );
           })}
@@ -220,7 +264,7 @@ export default function ChartOfAccountsPage() {
               <option value="ALL">All Account Types</option>
               {ACCOUNT_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {ACCOUNT_TYPE_META[t]?.label || t}
                 </option>
               ))}
             </select>

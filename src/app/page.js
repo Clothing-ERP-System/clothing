@@ -1,61 +1,162 @@
 'use client';
 
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch.js';
 import Layout from '@/components/Layout';
 import Link from 'next/link';
 import {
-  Shirt,
-  Layers,
-  Scissors,
-  Store,
-  Clock,
-  ChevronRight,
-  MoreHorizontal,
-  Bell,
   Activity,
-  ArrowUp,
-  ArrowDown,
-  ShieldCheck,
+  ArrowRight,
+  Bell,
+  Building2,
+  ChevronRight,
+  Clock,
   Coins,
+  Layers,
+  MoreHorizontal,
+  Package,
+  Shirt,
+  ShieldCheck,
+  Store,
+  TrendingUp,
+  Plus,
+  Edit,
+  Trash2,
+  CheckCircle2,
+  X,
+  Calendar,
+  Check,
+  Wallet,
+  CreditCard,
+  Truck,
 } from 'lucide-react';
+import { formatCurrency, DEFAULT_CURRENCY_SYMBOL } from '@/lib/currency.js';
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+function statusBadge(status) {
+  const statusMap = {
+    PaidInFull: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+    PartiallyPaid: 'bg-amber-50 text-amber-700 border-amber-200/80',
+    Unpaid: 'bg-rose-50 text-rose-700 border-rose-200/80',
+    Confirmed: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+    Cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
+    Delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+  };
+  return statusMap[status] || 'bg-slate-100 text-slate-500 border-slate-200';
+}
+
+function rangeLabel(range) {
+  const labels = {
+    today: 'Today',
+    week: 'This Week',
+    month: 'This Month',
+    'financial-year': 'This Financial Year',
+  };
+  return labels[range] || 'This Month';
+}
+
+function svgLineChart({ points, width = 100, height = 120, color = '#4F46E5', gradientId = 'chartGradient' }) {
+  if (!points || points.length === 0) return null;
+
+  const maxVal = Math.max(...points.map((p) => p.value), 1);
+  const stepX = width / Math.max(points.length - 1, 1);
+
+  const linePoints = points.map((p, i) => {
+    const x = i * stepX;
+    const y = height - (p.value / maxVal) * (height - 16);
+    return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+
+  const dots = points.map((p, i) => {
+    const x = i * stepX;
+    const y = height - (p.value / maxVal) * (height - 16);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}" />`;
+  }).join('');
+
+  return `
+    <svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.2" />
+          <stop offset="100%" stop-color="${color}" stop-opacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d="${linePoints} L ${(points.length - 1) * stepX.toFixed(1)} ${height.toFixed(1)} L 0 ${height.toFixed(1)} Z" fill="url(#${gradientId})" />
+      <path d="${linePoints}" fill="none" stroke="${color}" strokeWidth="2" />
+      ${dots}
+    </svg>
+  `;
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [range, setRange] = useState('month');
+  const [activeTab, setActiveTab] = useState('sales');
+  const [saleStatView, setSaleStatView] = useState('monthly');
+  const [profitStatView, setProfitStatView] = useState('daily');
 
-  const requestStats = useCallback(async () => {
-    const response = await apiFetch('/api/dashboard/stats', { cache: 'no-store' });
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(result.message || 'Unable to load dashboard data');
+  // Todo state
+  const [todos, setTodos] = useState([]);
+  const [todoFilter, setTodoFilter] = useState('all');
+  const [newTodoTitle, setNewTodoTitle] = useState('');
+  const [newTodoDesc, setNewTodoDesc] = useState('');
+  const [newTodoDueDate, setNewTodoDueDate] = useState('');
+  const [todoLoading, setTodoLoading] = useState(true);
+  const [editingTodoId, setEditingTodoId] = useState(null);
+  const [editTodoTitle, setEditTodoTitle] = useState('');
+
+  // Calendar state
+  const [events, setEvents] = useState([]);
+  const [calendarView, setCalendarView] = useState('month');
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventStartDate, setNewEventStartDate] = useState('');
+  const [newEventEndDate, setNewEventEndDate] = useState('');
+  const [editingEvent, setEditingEvent] = useState(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    const res = await apiFetch(`/api/dashboard?range=${range}&section=all`, { cache: 'no-store' });
+
+    let result;
+    try {
+      const text = await res.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error(`Server returned empty response (HTTP ${res.status})`);
+      }
+      result = JSON.parse(text);
+    } catch (parseError) {
+      if (parseError instanceof SyntaxError) {
+        throw new Error(`Server returned invalid response (HTTP ${res.status})`);
+      }
+      throw parseError;
+    }
+
+    if (!res.ok || !result.success) {
+      throw new Error(result?.message || `Unable to load dashboard data (HTTP ${res.status})`);
     }
     return result.data;
-  }, []);
-
-  const retryStats = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await requestStats());
-    } catch (fetchError) {
-      console.error('Error fetching dashboard stats:', fetchError);
-      setData(null);
-      setError(fetchError.message || 'Unable to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [range]);
 
   useEffect(() => {
     let active = true;
-    requestStats()
+    fetchDashboardData()
       .then((stats) => {
         if (active) setData(stats);
       })
       .catch((fetchError) => {
-        console.error('Error fetching dashboard stats:', fetchError);
+        console.error('Error fetching dashboard data:', fetchError);
         if (active) {
           setData(null);
           setError(fetchError.message || 'Unable to load dashboard data');
@@ -64,31 +165,308 @@ export default function DashboardPage() {
       .finally(() => {
         if (active) setLoading(false);
       });
+    return () => { active = false; };
+  }, [fetchDashboardData]);
 
-    return () => {
-      active = false;
-    };
-  }, [requestStats]);
+  // ── Todos ─────────────────────────────────────────────────────────
+  const fetchTodosData = useCallback(async () => {
+    const res = await apiFetch(`/api/todos?status=${todoFilter}`, { cache: 'no-store' });
 
+    let result;
+    try {
+      const text = await res.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error(`Server returned empty response (HTTP ${res.status})`);
+      }
+      result = JSON.parse(text);
+    } catch (parseError) {
+      if (parseError instanceof SyntaxError) {
+        throw new Error(`Server returned invalid response (HTTP ${res.status})`);
+      }
+      throw parseError;
+    }
+
+    if (!res.ok || !result.success) {
+      throw new Error(result?.message || `Unable to fetch todos (HTTP ${res.status})`);
+    }
+    return result.data.todos || [];
+  }, [todoFilter]);
+
+  useEffect(() => {
+    let active = true;
+    fetchTodosData()
+      .then((todoList) => {
+        if (active) setTodos(todoList);
+      })
+      .catch(() => {
+        if (active) setTodos([]);
+      })
+      .finally(() => {
+        if (active) setTodoLoading(false);
+      });
+    return () => { active = false; };
+  }, [fetchTodosData]);
+
+  const handleAddTodo = async (e) => {
+    e.preventDefault();
+    if (!newTodoTitle.trim()) return;
+    setTodoLoading(true);
+    try {
+      const res = await apiFetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTodoTitle.trim(), description: newTodoDesc.trim(), dueDate: newTodoDueDate }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setNewTodoTitle('');
+        setNewTodoDesc('');
+        setNewTodoDueDate('');
+        fetchTodosData();
+      }
+    } catch (err) {
+      console.error('Error creating todo:', err);
+    } finally {
+      setTodoLoading(false);
+    }
+  };
+
+  const handleToggleTodo = async (todo) => {
+    const newStatus = todo.status === 'completed' ? 'pending' : 'completed';
+    try {
+      const res = await apiFetch('/api/todos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: todo.id, status: newStatus }),
+      });
+      if (res.ok) fetchTodosData();
+    } catch (err) {
+      console.error('Error updating todo:', err);
+    }
+  };
+
+  const handleDeleteTodo = async (id) => {
+    if (!window.confirm('Delete this task?')) return;
+    try {
+      const res = await apiFetch(`/api/todos?id=${id}`, { method: 'DELETE' });
+      if (res.ok) fetchTodosData();
+    } catch (err) {
+      console.error('Error deleting todo:', err);
+    }
+  };
+
+  const handleEditTodoStart = (todo) => {
+    setEditingTodoId(todo.id);
+    setEditTodoTitle(todo.title);
+  };
+
+  const handleEditTodoSave = async (e) => {
+    e.preventDefault();
+    if (!editTodoTitle.trim()) return;
+    try {
+      const res = await apiFetch('/api/todos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingTodoId, title: editTodoTitle.trim() }),
+      });
+      if (res.ok) {
+        setEditingTodoId(null);
+        setEditTodoTitle('');
+        fetchTodosData();
+      }
+    } catch (err) {
+      console.error('Error editing todo:', err);
+    }
+  };
+
+  const handleEditTodoCancel = () => {
+    setEditingTodoId(null);
+    setEditTodoTitle('');
+  };
+
+  // ── Calendar ──────────────────────────────────────────────────────
+  const fetchCalendarData = useCallback(async () => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const start = new Date(year, month, 1).toISOString().slice(0, 10);
+    const end = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+    const res = await apiFetch(`/api/calendar?start=${start}&end=${end}`, { cache: 'no-store' });
+
+    let result;
+    try {
+      const text = await res.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error(`Server returned empty response (HTTP ${res.status})`);
+      }
+      result = JSON.parse(text);
+    } catch (parseError) {
+      if (parseError instanceof SyntaxError) {
+        throw new Error(`Server returned invalid response (HTTP ${res.status})`);
+      }
+      throw parseError;
+    }
+
+    if (!res.ok || !result.success) {
+      throw new Error(result?.message || `Unable to fetch calendar events (HTTP ${res.status})`);
+    }
+    return result.data.events || [];
+  }, [calendarDate]);
+
+  useEffect(() => {
+    let active = true;
+    fetchCalendarData()
+      .then((eventList) => {
+        if (active) setEvents(eventList);
+      })
+      .catch(() => {
+        if (active) setEvents([]);
+      })
+      .finally(() => {
+        if (active) setCalendarLoading(false);
+      });
+    return () => { active = false; };
+  }, [fetchCalendarData]);
+
+  const handleAddEvent = async (e) => {
+    e.preventDefault();
+    if (!newEventTitle.trim() || !newEventStartDate) return;
+    setCalendarLoading(true);
+    try {
+      const res = await apiFetch('/api/calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newEventTitle.trim(),
+          startDate: newEventStartDate,
+          endDate: newEventEndDate || newEventStartDate,
+          eventType: 'appointment',
+        }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setNewEventTitle('');
+        setNewEventStartDate('');
+        setNewEventEndDate('');
+        fetchCalendarData();
+      }
+    } catch (err) {
+      console.error('Error creating event:', err);
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  const handleDeleteEvent = async (id) => {
+    if (!window.confirm('Delete this event?')) return;
+    try {
+      const res = await apiFetch(`/api/calendar?id=${id}`, { method: 'DELETE' });
+      if (res.ok) fetchCalendarData();
+    } catch (err) {
+      console.error('Error deleting event:', err);
+    }
+  };
+
+  const handleEditEventStart = (ev) => {
+    setEditingEvent({
+      id: ev.id,
+      title: ev.title || '',
+      description: ev.description || '',
+      startDate: ev.startDate ? ev.startDate.slice(0, 10) : '',
+      endDate: ev.endDate ? ev.endDate.slice(0, 10) : (ev.startDate ? ev.startDate.slice(0, 10) : ''),
+      startTime: ev.startTime || '',
+      endTime: ev.endTime || '',
+      eventType: ev.eventType || 'appointment',
+    });
+  };
+
+  const handleEditEventSave = async (e) => {
+    e.preventDefault();
+    if (!editingEvent || !editingEvent.title.trim() || !editingEvent.startDate) return;
+    try {
+      const res = await apiFetch('/api/calendar', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingEvent),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setEditingEvent(null);
+        fetchCalendarData();
+      }
+    } catch (err) {
+      console.error('Error editing event:', err);
+    }
+  };
+
+  // ── Derived data ─────────────────────────────────────────────────
+  const summary = useMemo(() => data?.summary || null, [data]);
+  const salesStats = useMemo(() => data?.sales || null, [data]);
+  const profitStats = useMemo(() => data?.profit || null, [data]);
+  const activity = useMemo(() => data?.activity || null, [data]);
+  const branchStock = useMemo(() => data?.branchStock || [], [data]);
+  const paymentDue = useMemo(() => data?.paymentDue || [], [data]);
+  const stockAlerts = useMemo(() => data?.stockAlerts || [], [data]);
+
+  const pendingTodos = todos.filter((t) => t.status !== 'completed');
+  const completedTodos = todos.filter((t) => t.status === 'completed');
+
+  // Calendar events grouped by date
+  const eventsByDate = useMemo(() => {
+    const map = new Map();
+    for (const ev of events) {
+      const key = ev.startDate;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(ev);
+    }
+    return map;
+  }, [events]);
+
+  // ── Empty states ─────────────────────────────────────────────────
   if (loading) {
     return (
       <Layout>
-        <p className="rounded-xl border border-indigo-100 bg-white p-5 text-sm text-slate-500" role="status">
-          Loading dashboard data…
-        </p>
+        <div className="rounded-xl border border-indigo-100 bg-white p-8 text-center text-sm text-slate-500" role="status">
+          Loading dashboard…
+        </div>
       </Layout>
     );
   }
 
   if (error || !data) {
+    const needsOnboarding = error?.includes('onboarding') || error?.includes('No company is configured');
+    if (needsOnboarding) {
+      return (
+        <Layout>
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 dark:bg-slate-900 dark:border-indigo-900/60 p-8 sm:p-12 text-center max-w-2xl mx-auto my-12 shadow-sm">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mx-auto mb-4 shadow-md shadow-indigo-600/20">
+              <Building2 className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Welcome to ERP DOST</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
+              Your workspace is fresh and ready for configuration. Set up your company profile, financial year, currency, chart of accounts, and warehouse locations to begin.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/25 hover:bg-indigo-700 transition cursor-pointer"
+              >
+                <span>Start Client Onboarding</span>
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        </Layout>
+      );
+    }
+
     return (
       <Layout>
-        <div className="rounded-xl border border-rose-200 bg-white p-5 text-sm text-rose-800" role="alert">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800" role="alert">
           <p className="font-semibold">Dashboard data is unavailable.</p>
           <p className="mt-1">{error || 'No dashboard response was received.'}</p>
           <button
             type="button"
-            onClick={retryStats}
+            onClick={fetchDashboardData}
             className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
           >
             Retry
@@ -98,739 +476,1156 @@ export default function DashboardPage() {
     );
   }
 
-  const kpis = data.kpis;
-  const alerts = data.alerts;
-  const productionTrends = data.productionTrends;
+  // ── Summary Cards Data ───────────────────────────────────────────
+  const currencySymbol = summary?.currencySymbol || DEFAULT_CURRENCY_SYMBOL;
 
-  const hasProductionData = productionTrends.some((pt) => pt.actual > 0 || pt.target > 0);
-  const maxProductionValue = Math.max(
-    0,
-    ...productionTrends.flatMap((trend) => [trend.target, trend.actual])
-  );
-  const chartMaximum = maxProductionValue > 0 ? Math.ceil(maxProductionValue / 100) * 100 : 0;
-  const chartTicks = chartMaximum > 0
-    ? [chartMaximum, chartMaximum * 0.75, chartMaximum * 0.5, chartMaximum * 0.25, 0].map(Math.round)
-    : [0];
-  const chartPoints = (field) => productionTrends.map((trend, index) => ({
-    x: productionTrends.length > 1 ? 10 + (index * 680) / (productionTrends.length - 1) : 350,
-    y: chartMaximum > 0 ? 120 - (Math.min(trend[field], chartMaximum) / chartMaximum) * 100 : 120,
-  }));
-  const targetPoints = chartPoints('target');
-  const actualPoints = chartPoints('actual');
-  const linePath = (points) => points.map((point, index) =>
-    `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
-  ).join(' ');
-  const areaPath = (points) => points.length
-    ? `${linePath(points)} L ${points[points.length - 1].x} 125 L ${points[0].x} 125 Z`
-    : '';
-  const revenueChange = kpis.revenueChangePercent;
-  const revenueChangeClass = typeof revenueChange !== 'number'
-    ? 'bg-slate-100 text-slate-600 border-slate-200'
-    : revenueChange >= 0
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-      : 'bg-rose-50 text-rose-700 border-rose-200/60';
+  const cards = [
+    {
+      title: 'Total Purchase',
+      value: formatCurrency(summary?.totalPurchase ?? 0, currencySymbol),
+      icon: <Truck className="w-4 h-4" />,
+      color: 'bg-rose-50 text-rose-700 border-rose-200/80',
+    },
+    {
+      title: 'Total Sale',
+      value: formatCurrency(summary?.totalSale ?? 0, currencySymbol),
+      icon: <Store className="w-4 h-4" />,
+      color: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+    },
+    {
+      title: 'Expenses',
+      value: formatCurrency(summary?.totalExpenses ?? 0, currencySymbol),
+      icon: <Wallet className="w-4 h-4" />,
+      color: 'bg-amber-50 text-amber-700 border-amber-200/80',
+    },
+    {
+      title: 'Purchase Due',
+      value: formatCurrency(summary?.purchaseDue ?? 0, currencySymbol),
+      icon: <CreditCard className="w-4 h-4" />,
+      color: 'bg-amber-50 text-amber-700 border-amber-200/80',
+    },
+    {
+      title: 'Invoice Due',
+      value: formatCurrency(summary?.invoiceDue ?? 0, currencySymbol),
+      icon: <CreditCard className="w-4 h-4" />,
+      color: 'bg-rose-50 text-rose-700 border-rose-200/80',
+    },
+    {
+      title: 'Total in Bank',
+      value: formatCurrency(summary?.totalInBank ?? 0, currencySymbol),
+      icon: <CreditCard className="w-4 h-4" />,
+      color: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+    },
+    {
+      title: 'Total in Cash',
+      value: formatCurrency(summary?.totalInCash ?? 0, currencySymbol),
+      icon: <Coins className="w-4 h-4" />,
+      color: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+    },
+    {
+      title: 'Net Profit',
+      value: formatCurrency(summary?.netProfit ?? 0, currencySymbol),
+      icon: <TrendingUp className="w-4 h-4" />,
+      color: (summary?.netProfit ?? 0) >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80' : 'bg-rose-50 text-rose-700 border-rose-200/80',
+    },
+  ];
 
   return (
     <Layout>
-      <div className="space-y-4">
-        {/* ══════════════════════════════════════════════════════════════════════
-            1. HERO BANNER — Elegant Flowing Waves, Botanical Leaves & Artwork
-            ══════════════════════════════════════════════════════════════════════ */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-white via-indigo-50/50 to-purple-50/60 dark:from-slate-900 dark:via-indigo-950/50 dark:to-slate-900 rounded-2xl border border-indigo-100/90 dark:border-indigo-900/60 p-6 sm:p-7 min-h-[175px] shadow-sm flex flex-col justify-center">
-          {/* Top-Left Botanical Accent Curve */}
-          <div className="pointer-events-none absolute left-0 top-0 w-28 h-28 overflow-hidden z-0 opacity-40 dark:opacity-20">
-            <svg viewBox="0 0 100 100" fill="none" className="w-full h-full">
-              <path d="M0 0 C 35 15, 60 45, 70 90" stroke="#818CF8" strokeWidth="1.5" strokeDasharray="3 3" />
-              <path d="M22 15 C 38 10, 48 24, 42 38 C 32 34, 22 25, 22 15 Z" fill="#818CF8" fillOpacity="0.22" />
-              <path d="M42 35 C 62 30, 72 44, 65 60 C 52 56, 42 46, 42 35 Z" fill="#C084FC" fillOpacity="0.25" />
-            </svg>
+      <div className="space-y-6">
+        {/* ═══════════════════════════════════════════════════════════════════════════
+            1. HEADER — Title, Date Range Filters, Refresh
+            ═════════════════════════════════════════════════════════════════════════ */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 relative z-10">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+              {data?.company?.companyName || 'Dawley institute of technology'} — <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Real-time business overview · {rangeLabel(range)} · Base Currency: {currencySymbol} ({data?.company?.currency || 'PKR'})
+            </p>
           </div>
 
-          {/* Decorative Flowing Wave Shapes (Bottom & Right Corners) */}
-          <div className="pointer-events-none absolute right-0 bottom-0 w-full max-w-2xl h-full overflow-hidden z-0 opacity-60 dark:opacity-25">
-            <svg viewBox="0 0 500 160" fill="none" className="w-full h-full" preserveAspectRatio="none">
-              <path
-                d="M20 160 C 130 85, 240 145, 360 90 C 410 70, 455 105, 500 85 L 500 160 Z"
-                fill="url(#heroWave1)"
-              />
-              <path
-                d="M90 160 C 190 100, 300 140, 410 105 C 450 95, 480 115, 500 110 L 500 160 Z"
-                fill="url(#heroWave2)"
-              />
-              <path
-                d="M180 160 C 280 120, 360 148, 440 125 C 475 115, 490 130, 500 128 L 500 160 Z"
-                fill="url(#heroWave3)"
-              />
-              <defs>
-                <linearGradient id="heroWave1" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#818CF8" stopOpacity="0.5" />
-                  <stop offset="50%" stopColor="#C084FC" stopOpacity="0.32" />
-                  <stop offset="100%" stopColor="#F472B6" stopOpacity="0.18" />
-                </linearGradient>
-                <linearGradient id="heroWave2" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.4" />
-                  <stop offset="60%" stopColor="#818CF8" stopOpacity="0.22" />
-                  <stop offset="100%" stopColor="#C084FC" stopOpacity="0.1" />
-                </linearGradient>
-                <linearGradient id="heroWave3" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#C084FC" stopOpacity="0.35" />
-                  <stop offset="100%" stopColor="#F472B6" stopOpacity="0.15" />
-                </linearGradient>
-              </defs>
-            </svg>
+          <div className="flex items-center gap-2">
+            {[ 'today', 'week', 'month', 'financial-year' ].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                  range === r
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-700/60'
+                }`}
+              >
+                {rangeLabel(r)}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={fetchDashboardData}
+              className="ml-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors flex items-center gap-1.5"
+            >
+              <Activity className="w-3 h-3" />
+              <span>Refresh</span>
+            </button>
           </div>
+        </div>
 
-          {/* Elegant Botanical Multi-Leaf Branch Illustration matching Reference Image */}
-          <div className="pointer-events-none absolute right-12 sm:right-24 lg:right-80 top-1/2 -translate-y-1/2 flex items-center gap-3.5 z-0 opacity-85 dark:opacity-45">
-            <svg className="w-24 h-32 text-indigo-500/70 dark:text-indigo-400/50" viewBox="0 0 90 130" fill="none">
-              {/* Main curved botanical stem */}
-              <path d="M45 125 C 45 75, 60 45, 78 12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-              {/* Left Leaf 1 */}
-              <path d="M46 100 C 28 88, 16 64, 22 44 C 36 54, 42 78, 46 100 Z" fill="#818CF8" fillOpacity="0.35" stroke="currentColor" strokeWidth="1" />
-              {/* Right Leaf 1 */}
-              <path d="M50 78 C 70 64, 82 48, 86 30 C 70 34, 58 54, 50 78 Z" fill="#C084FC" fillOpacity="0.4" stroke="currentColor" strokeWidth="1" />
-              {/* Left Leaf 2 */}
-              <path d="M47 56 C 30 44, 24 26, 34 12 C 44 22, 46 42, 47 56 Z" fill="#38BDF8" fillOpacity="0.35" stroke="currentColor" strokeWidth="1" />
-              {/* Top Bud / Leaf */}
-              <path d="M72 22 C 80 12, 84 4, 80 0 C 72 4, 68 12, 72 22 Z" fill="#C084FC" fillOpacity="0.5" stroke="currentColor" strokeWidth="0.8" />
-              {/* Delicate Floating Petals */}
-              <ellipse cx="18" cy="28" rx="3.5" ry="6" transform="rotate(-30 18 28)" fill="#818CF8" fillOpacity="0.35" />
-              <ellipse cx="82" cy="55" rx="3" ry="5" transform="rotate(25 82 55)" fill="#F472B6" fillOpacity="0.35" />
-            </svg>
-            <div className="hidden lg:block font-serif italic text-indigo-600/90 dark:text-indigo-300 text-xs leading-snug tracking-wide select-none">
-              <span className="block font-medium">Better Process</span>
-              <span className="block font-bold bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-300 dark:to-purple-300 bg-clip-text text-transparent">Bigger Growth</span>
-            </div>
+        {/* Error banner (non-fatal) */}
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 relative z-10">
+            {error}
           </div>
+        )}
 
-          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 relative z-10">
-            {/* Title & Live Status */}
-            <div className="max-w-2xl">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10.5px] font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80 shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  LIVE ERP OPERATIONS
-                </span>
-                <span className="text-xs text-slate-400 font-medium">• Production Console</span>
+        {/* ═══════════════════════════════════════════════════════════════════════════
+            2. SUMMARY CARDS (8 cards)
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+          {cards.map((card, idx) => (
+            <div key={idx} className="relative overflow-hidden bg-white dark:bg-slate-900 p-4 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col h-[110px]">
+              <div className="flex items-center justify-between mb-2.5 relative z-10">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold shadow-sm ${card.color}`}>
+                  {card.icon}
+                </div>
               </div>
-
-              <h1 className="text-xl sm:text-2xl lg:text-[1.7rem] font-black text-slate-900 dark:text-white tracking-tight leading-snug">
-                ERP Dost —{' '}
-                <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
-                  Apparel & Garment Operations
-                </span>
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">
-                Intelligent Production Tracking, Fabric Rolls & Retail Console
+              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 relative z-10 mb-1">
+                {card.title}
               </p>
+              <div className="flex items-baseline gap-0.5 relative z-10">
+                <span className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                  {card.value}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════════════
+            3. SALE & PROFIT STATISTICS (side by side)
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 relative z-10">
+          {/* Sale Statistics */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Sale Statistics</h3>
+                  <p className="text-[9px] text-slate-400">Monthly & yearly trend</p>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSaleStatView('monthly')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    saleStatView === 'monthly'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaleStatView('yearly')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    saleStatView === 'yearly'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Yearly
+                </button>
+              </div>
             </div>
 
-            {/* Quick Action Buttons in ONE clean horizontal row on desktop */}
-            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-              <Link
-                href="/cutting"
-                className="inline-flex items-center justify-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-md shadow-indigo-500/25 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:scale-95 whitespace-nowrap"
-              >
-                <Scissors className="w-3.5 h-3.5" />
-                <span>Cutting Order →</span>
-              </Link>
+            <div className="flex-1 relative max-h-[120px] overflow-hidden">
+              {salesStats && salesStats[saleStatView] && salesStats[saleStatView].length > 0 ? (
+                <div dangerouslySetInnerHTML={{ __html: svgLineChart({
+                  points: salesStats[saleStatView].map((m) => ({ value: m.total || m.revenue || 0, label: m.month || m.year || m.week || '' })),
+                  color: '#10B981',
+                  gradientId: 'saleChartGradient',
+                }) }} />
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center">
+                  <Package className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="text-[10px] text-slate-400 font-medium">No sales data available</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Record sales to see trends</p>
+                </div>
+              )}
+            </div>
 
-              <Link
-                href="/fabric"
-                className="inline-flex items-center justify-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-bold text-white bg-[#0B0F19] hover:bg-slate-800 shadow-md shadow-slate-900/20 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:scale-95 whitespace-nowrap"
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Fabric Rolls →</span>
-              </Link>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[9px]">
+              <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60">
+                <div className="text-slate-500 dark:text-slate-400">Total ({saleStatView.charAt(0).toUpperCase() + saleStatView.slice(1)})</div>
+                <div className="font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(salesStats?.[saleStatView]?.reduce((sum, m) => sum + (m.total || m.revenue || 0), 0) ?? 0, currencySymbol)}
+                </div>
+              </div>
+              <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60">
+                <div className="text-slate-500 dark:text-slate-400">Total ({saleStatView === 'monthly' ? 'Yearly' : 'Monthly'})</div>
+                <div className="font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(salesStats?.[saleStatView === 'monthly' ? 'yearly' : 'monthly']?.reduce((sum, m) => sum + (m.total || m.revenue || 0), 0) ?? 0, currencySymbol)}
+                </div>
+              </div>
+            </div>
+          </div>
 
-              <Link
-                href="/pos"
-                className="inline-flex items-center justify-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-900 border border-emerald-300/80 dark:border-emerald-700/80 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 shadow-xs transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:scale-95 whitespace-nowrap"
-              >
-                <Store className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Retail POS →</span>
-              </Link>
+          {/* Profit Statistics */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Activity className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Profit Statistics</h3>
+                  <p className="text-[9px] text-slate-400">Accounting-based profit trend</p>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setProfitStatView('daily')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    profitStatView === 'daily'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Daily
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfitStatView('weekly')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    profitStatView === 'weekly'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Weekly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfitStatView('monthly')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    profitStatView === 'monthly'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProfitStatView('yearly')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    profitStatView === 'yearly'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Yearly
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 relative max-h-[120px] overflow-hidden">
+              {profitStats && profitStats[profitStatView] && profitStats[profitStatView].length > 0 ? (
+                <div dangerouslySetInnerHTML={{ __html: svgLineChart({
+                  points: profitStats[profitStatView].map((d) => ({ value: Math.max(0, d.profit), label: d.date || d.week || d.month || d.year || '' })),
+                  color: '#4F46E5',
+                  gradientId: 'profitChartGradient',
+                }) }} />
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center">
+                  <Activity className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="text-[10px] text-slate-400 font-medium">No profit data available</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Post transactions to see profit trends</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[9px]">
+              <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60">
+                <div className="text-slate-500 dark:text-slate-400">Total Revenue ({profitStatView})</div>
+                <div className="font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(profitStats?.[profitStatView]?.reduce((sum, d) => sum + d.revenue, 0) ?? 0, currencySymbol)}
+                </div>
+              </div>
+              <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60">
+                <div className="text-slate-500 dark:text-slate-400">Net Profit</div>
+                <div className={`font-bold text-slate-900 dark:text-white ${
+                  (summary?.netProfit ?? 0) < 0 ? 'text-rose-600' : 'text-emerald-600'
+                }`}>
+                  {formatCurrency(summary?.netProfit ?? 0, currencySymbol)}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════════════════════════════
-            2. FOUR KPI CARDS WITH ACTUAL COPIED ACCENT WAVE SHAPES & BOTANICALS
-            ══════════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          {/* Card 1: Total Sales Revenue (Mint Wave Shapes + Botanical Flourish) */}
-          <div className="relative overflow-hidden bg-white/95 dark:bg-slate-900/95 p-4 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-md transition-all duration-200 flex flex-col justify-between min-h-[148px]">
-            {/* Top-Right Botanical Leaf Accent */}
-            <div className="pointer-events-none absolute right-1 top-1 w-16 h-16 z-0 opacity-40 dark:opacity-20">
-              <svg viewBox="0 0 60 60" fill="none" className="w-full h-full">
-                <path d="M55 5 C 40 18, 25 35, 18 55" stroke="#10B981" strokeWidth="1" strokeOpacity="0.4" strokeLinecap="round" />
-                <path d="M42 18 C 30 14, 25 24, 35 28 C 42 30, 45 24, 42 18 Z" fill="#34D399" fillOpacity="0.3" />
-                <path d="M30 32 C 20 28, 16 38, 26 42 C 32 44, 35 38, 30 32 Z" fill="#06B6D4" fillOpacity="0.25" />
-              </svg>
-            </div>
-
-            {/* Multi-layered Flowing Mint / Cyan Wave SVG */}
-            <div className="pointer-events-none absolute right-0 bottom-0 w-40 h-26 z-0 opacity-55 dark:opacity-30">
-              <svg viewBox="0 0 160 120" fill="none" className="w-full h-full" preserveAspectRatio="none">
-                <path d="M0 120 C 45 75, 85 105, 160 60 L 160 120 Z" fill="url(#mintWave1)" />
-                <path d="M30 120 C 70 85, 110 110, 160 85 L 160 120 Z" fill="url(#mintWave2)" />
-                <circle cx="140" cy="70" r="14" stroke="#10B981" strokeOpacity="0.3" strokeWidth="1.5" fill="none" />
-                <defs>
-                  <linearGradient id="mintWave1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#34D399" stopOpacity="0.5" />
-                    <stop offset="100%" stopColor="#06B6D4" stopOpacity="0.2" />
-                  </linearGradient>
-                  <linearGradient id="mintWave2" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#059669" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#10B981" stopOpacity="0.12" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between relative z-10">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shadow-2xs">
-                  <Coins className="w-4 h-4" />
+        {/* ══════════════════════════════════════════════════════════════════════════
+            4. RECENT ACTIVITY & BRANCH STOCK (row)
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 relative z-10">
+          {/* Recent Activity */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Activity className="w-4 h-4" />
                 </div>
-                <button type="button" aria-label="Card options" className="text-slate-300 hover:text-slate-500">
-                  <MoreHorizontal className="w-4 h-4" />
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Recent Activity</h3>
+                  <p className="text-[9px] text-slate-400">Latest sales & purchase transactions</p>
+                </div>
+              </div>
+              <div className="flex gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('sales')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                    activeTab === 'sales'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Sales
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('purchase')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                    activeTab === 'purchase'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Purchases
                 </button>
               </div>
+            </div>
 
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 relative z-10">
-                TOTAL SALES REVENUE
-              </p>
-
-              <div className="mt-1 flex items-baseline gap-1.5 relative z-10">
-                <span className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  Rs. {kpis.totalRevenue.toLocaleString()}
-                </span>
-              </div>
-
-              <div className="mt-1 flex items-center gap-1 relative z-10">
-                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold border dark:bg-slate-800 dark:border-slate-700 ${revenueChangeClass}`}>
-                  {typeof revenueChange === 'number' && (
-                    revenueChange < 0
-                      ? <ArrowDown className="w-2.5 h-2.5" />
-                      : <ArrowUp className="w-2.5 h-2.5" />
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700/60">
+                    {['Invoice', 'Date', 'Branch', 'Amount', 'Customer / Supplier', 'Status'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-700/50">
+                  {activity && activity[activeTab === 'sales' ? 'sales' : 'purchases'] && activity[activeTab === 'sales' ? 'sales' : 'purchases'].length > 0 ? (
+                    activity[activeTab === 'sales' ? 'sales' : 'purchases'].map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="px-3 py-2.5 text-[10px] font-medium text-slate-700 dark:text-slate-300">
+                          {item.invoiceNumber}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {formatDate(item.date)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.branch || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] font-medium text-slate-900 dark:text-white">
+                          {formatCurrency(item.amount, currencySymbol)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[150px]">
+                          {item.customer || '—'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold border ${statusBadge(item.status)}`}>
+                            {item.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-[10px] text-slate-400">
+                        No {activeTab === 'sales' ? 'sales' : 'purchase'} activity found.
+                      </td>
+                    </tr>
                   )}
-                  {typeof revenueChange === 'number' ? `${revenueChange > 0 ? '+' : ''}${revenueChange.toFixed(1)}%` : 'N/A'}
-                </span>
-                <span className="text-[10px] text-slate-400 font-medium">vs previous month</span>
-              </div>
+                </tbody>
+              </table>
             </div>
 
-            <div className="mt-2.5 pt-2 border-t border-indigo-50/80 dark:border-slate-800 flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-medium relative z-10">
-              <span>Wholesale: Rs. {kpis.wholesaleSalesTotal.toLocaleString()}</span>
-              <span>POS: Rs. {kpis.retailPosSalesTotal.toLocaleString()}</span>
-            </div>
-          </div>
-
-          {/* Card 2: Stitching Output & WIP (Violet Wave Shapes + Botanical Flourish) */}
-          <div className="relative overflow-hidden bg-white/95 dark:bg-slate-900/95 p-4 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-md transition-all duration-200 flex flex-col justify-between min-h-[148px]">
-            {/* Top-Right Botanical Leaf Accent */}
-            <div className="pointer-events-none absolute right-1 top-1 w-16 h-16 z-0 opacity-40 dark:opacity-20">
-              <svg viewBox="0 0 60 60" fill="none" className="w-full h-full">
-                <path d="M55 5 C 40 18, 25 35, 18 55" stroke="#818CF8" strokeWidth="1" strokeOpacity="0.4" strokeLinecap="round" />
-                <path d="M42 18 C 30 14, 25 24, 35 28 C 42 30, 45 24, 42 18 Z" fill="#818CF8" fillOpacity="0.3" />
-                <path d="M30 32 C 20 28, 16 38, 26 42 C 32 44, 35 38, 30 32 Z" fill="#C084FC" fillOpacity="0.25" />
-              </svg>
-            </div>
-
-            {/* Multi-layered Flowing Lavender / Violet Wave SVG */}
-            <div className="pointer-events-none absolute right-0 bottom-0 w-40 h-26 z-0 opacity-55 dark:opacity-30">
-              <svg viewBox="0 0 160 120" fill="none" className="w-full h-full" preserveAspectRatio="none">
-                <path d="M0 120 C 45 65, 95 100, 160 55 L 160 120 Z" fill="url(#violetWave1)" />
-                <path d="M35 120 C 80 80, 120 108, 160 80 L 160 120 Z" fill="url(#violetWave2)" />
-                <defs>
-                  <linearGradient id="violetWave1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#818CF8" stopOpacity="0.5" />
-                    <stop offset="100%" stopColor="#C084FC" stopOpacity="0.2" />
-                  </linearGradient>
-                  <linearGradient id="violetWave2" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#6366F1" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#A855F7" stopOpacity="0.12" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between relative z-10">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-2xs">
-                  <Shirt className="w-4 h-4" />
-                </div>
-                <button type="button" aria-label="Card options" className="text-slate-300 hover:text-slate-500">
-                  <MoreHorizontal className="w-4 h-4" />
-                </button>
-              </div>
-
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 relative z-10">
-                STITCHING OUTPUT & WIP
-              </p>
-
-              <div className="mt-1 flex items-baseline gap-1.5 relative z-10">
-                <span className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {kpis.totalCompletedPieces} / {kpis.totalTargetPieces}
-                </span>
-                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Pcs</span>
-              </div>
-
-              <div className="mt-1 flex items-center gap-1.5 relative z-10">
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                  Active WIP: {kpis.totalWipPieces} pcs
-                </span>
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">
-                  {kpis.overallEfficiency}% Efficiency
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-2.5 pt-2 border-t border-indigo-50/80 dark:border-slate-800 flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-medium relative z-10">
-              <span>Lines: Active</span>
-              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
-                {kpis.overallEfficiency > 0 ? 'Flowing' : 'Idle'}
-              </span>
+            <div className="mt-3 flex justify-end">
+              <Link
+                href={activeTab === 'sales' ? '/sales' : '/procurement'}
+                className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+              >
+                View All {activeTab === 'sales' ? 'Orders' : 'Purchases'}
+                <ChevronRight className="w-3 h-3" />
+              </Link>
             </div>
           </div>
 
-          {/* Card 3: Fabric Stock (Peach Wave Shapes + Botanical Flourish) */}
-          <div className="relative overflow-hidden bg-white/95 dark:bg-slate-900/95 p-4 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-md transition-all duration-200 flex flex-col justify-between min-h-[148px]">
-            {/* Top-Right Botanical Leaf Accent */}
-            <div className="pointer-events-none absolute right-1 top-1 w-16 h-16 z-0 opacity-40 dark:opacity-20">
-              <svg viewBox="0 0 60 60" fill="none" className="w-full h-full">
-                <path d="M55 5 C 40 18, 25 35, 18 55" stroke="#FB923C" strokeWidth="1" strokeOpacity="0.4" strokeLinecap="round" />
-                <path d="M42 18 C 30 14, 25 24, 35 28 C 42 30, 45 24, 42 18 Z" fill="#FB923C" fillOpacity="0.3" />
-                <path d="M30 32 C 20 28, 16 38, 26 42 C 32 44, 35 38, 30 32 Z" fill="#FBBF24" fillOpacity="0.25" />
-              </svg>
-            </div>
-
-            {/* Multi-layered Flowing Peach / Amber Wave SVG */}
-            <div className="pointer-events-none absolute right-0 bottom-0 w-40 h-26 z-0 opacity-55 dark:opacity-30">
-              <svg viewBox="0 0 160 120" fill="none" className="w-full h-full" preserveAspectRatio="none">
-                <path d="M0 120 C 45 80, 95 110, 160 65 L 160 120 Z" fill="url(#peachWave1)" />
-                <path d="M35 120 C 75 90, 115 114, 160 90 L 160 120 Z" fill="url(#peachWave2)" />
-                <defs>
-                  <linearGradient id="peachWave1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#FB923C" stopOpacity="0.5" />
-                    <stop offset="100%" stopColor="#FBBF24" stopOpacity="0.2" />
-                  </linearGradient>
-                  <linearGradient id="peachWave2" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#EA580C" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#F59E0B" stopOpacity="0.12" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between relative z-10">
-                <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs">
+          {/* Branch Wise Product Quantity */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                   <Layers className="w-4 h-4" />
                 </div>
-                <button type="button" aria-label="Card options" className="text-slate-300 hover:text-slate-500">
-                  <MoreHorizontal className="w-4 h-4" />
-                </button>
-              </div>
-
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 relative z-10">
-                FABRIC STOCK
-              </p>
-
-              <div className="mt-1 flex items-baseline gap-1.5 relative z-10">
-                <span className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {kpis.totalFabricMeters.toLocaleString()}
-                </span>
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400">Meters</span>
-              </div>
-
-              <div className="mt-1 text-[10px] text-slate-400 font-medium relative z-10">
-                <span>Warehouse Catalog</span>
-              </div>
-            </div>
-
-            <div className="mt-2.5 pt-2 border-t border-indigo-50/80 dark:border-slate-800 flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-medium relative z-10">
-              <span>{kpis.availableRollsCount} Available Rolls</span>
-              <span>{kpis.totalRollsCount} Total Rolls</span>
-            </div>
-          </div>
-
-          {/* Card 4: Quality Pass Rate (Pink / Rose Wave Shapes + Botanical Flourish) */}
-          <div className="relative overflow-hidden bg-white/95 dark:bg-slate-900/95 p-4 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-md transition-all duration-200 flex flex-col justify-between min-h-[148px]">
-            {/* Top-Right Botanical Petal Accent */}
-            <div className="pointer-events-none absolute right-1 top-1 w-16 h-16 z-0 opacity-40 dark:opacity-20">
-              <svg viewBox="0 0 60 60" fill="none" className="w-full h-full">
-                <path d="M55 5 C 40 18, 25 35, 18 55" stroke="#F472B6" strokeWidth="1" strokeOpacity="0.4" strokeLinecap="round" />
-                <path d="M42 18 C 30 14, 25 24, 35 28 C 42 30, 45 24, 42 18 Z" fill="#F472B6" fillOpacity="0.3" />
-                <path d="M30 32 C 20 28, 16 38, 26 42 C 32 44, 35 38, 30 32 Z" fill="#FB7185" fillOpacity="0.25" />
-              </svg>
-            </div>
-
-            {/* Multi-layered Flowing Pink / Rose Wave SVG */}
-            <div className="pointer-events-none absolute right-0 bottom-0 w-40 h-26 z-0 opacity-55 dark:opacity-30">
-              <svg viewBox="0 0 160 120" fill="none" className="w-full h-full" preserveAspectRatio="none">
-                <path d="M0 120 C 50 70, 100 105, 160 60 L 160 120 Z" fill="url(#roseWave1)" />
-                <path d="M35 120 C 80 85, 120 110, 160 85 L 160 120 Z" fill="url(#roseWave2)" />
-                <defs>
-                  <linearGradient id="roseWave1" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#F472B6" stopOpacity="0.5" />
-                    <stop offset="100%" stopColor="#FB7185" stopOpacity="0.2" />
-                  </linearGradient>
-                  <linearGradient id="roseWave2" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#DB2777" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#E11D48" stopOpacity="0.12" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between relative z-10">
-                <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-2xs">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <button type="button" aria-label="Card options" className="text-slate-300 hover:text-slate-500">
-                  <MoreHorizontal className="w-4 h-4" />
-                </button>
-              </div>
-
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 relative z-10">
-                QUALITY PASS RATE
-              </p>
-
-              <div className="mt-1 flex items-baseline gap-1.5 relative z-10">
-                <span className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {kpis.qualityPassRate > 0 ? `${kpis.qualityPassRate.toFixed(1)}%` : '0.0%'}
-                </span>
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
-                  {kpis.qualityPassRate > 0 ? 'Grade Passed' : 'Pending QC'}
-                </span>
-              </div>
-
-              <div className="mt-1 text-[10px] text-slate-400 font-medium relative z-10">
-                <span>Inspection Standard</span>
-              </div>
-            </div>
-
-            <div className="mt-2.5 pt-2 border-t border-indigo-50/80 dark:border-slate-800 flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-medium relative z-10">
-              <span>Recv: Rs. {kpis.totalReceivables.toLocaleString()}</span>
-              <span>Payable: Rs. {kpis.totalPayables.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ══════════════════════════════════════════════════════════════════════
-            3. MAIN VISUAL: Daily Stitching Output & Material Stock Notices
-            ══════════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left (2 cols): Daily Stitching Output (With Multi-layered Waves & Botanical Flourish) */}
-          <div className="lg:col-span-2 bg-white/95 dark:bg-slate-900/95 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            {/* Top-Right Corner Decorative Wave Accent in Chart Card */}
-            <div className="pointer-events-none absolute right-0 top-0 w-52 h-36 overflow-hidden z-0 opacity-40 dark:opacity-20">
-              <svg viewBox="0 0 200 140" fill="none" className="w-full h-full">
-                <path d="M200 0 C 140 25, 80 80, 0 140 L 200 140 Z" fill="url(#chartCornerWave1)" />
-                <path d="M200 20 C 150 45, 100 95, 30 140 L 200 140 Z" fill="url(#chartCornerWave2)" />
-                {/* Botanical leaf flourish in chart corner */}
-                <path d="M170 15 C 155 30, 135 45, 110 50 C 125 35, 150 20, 170 15 Z" fill="#818CF8" fillOpacity="0.3" />
-                <path d="M145 35 C 130 50, 110 60, 90 62 C 105 50, 128 38, 145 35 Z" fill="#C084FC" fillOpacity="0.25" />
-                <defs>
-                  <linearGradient id="chartCornerWave1" x1="1" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#818CF8" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="#C084FC" stopOpacity="0.08" />
-                  </linearGradient>
-                  <linearGradient id="chartCornerWave2" x1="1" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#818CF8" stopOpacity="0.05" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            {/* Bottom-Left Subtle Curved Flowing Wave */}
-            <div className="pointer-events-none absolute left-0 bottom-0 w-44 h-24 overflow-hidden z-0 opacity-30 dark:opacity-15">
-              <svg viewBox="0 0 160 100" fill="none" className="w-full h-full" preserveAspectRatio="none">
-                <path d="M0 100 C 50 60, 100 85, 160 50 L 160 100 Z" fill="url(#chartBottomWave)" />
-                <defs>
-                  <linearGradient id="chartBottomWave" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#A78BFA" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#818CF8" stopOpacity="0.05" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div className="relative z-10">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold shadow-2xs">
-                    <Activity className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                      Daily Stitching Output (Pieces)
-                    </h2>
-                    <p className="text-[10px] text-slate-400">Live output logged across stitching lines</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2.5">
-                  <div className="hidden sm:flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-100/70 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-300">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                      Target
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-600 text-white">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                      Actual
-                    </span>
-                  </div>
-
-                  <Link
-                    href="/production"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 transition-colors cursor-pointer"
-                  >
-                    <span>+ Log Output</span>
-                    <ChevronRight className="w-3 h-3" />
-                  </Link>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Branch Wise Stock</h3>
+                  <p className="text-[9px] text-slate-400">Product quantities by warehouse</p>
                 </div>
               </div>
-
-              <div className="relative h-44 w-full pt-2">
-                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[9px] text-slate-400 font-medium pb-5">
-                  {chartTicks.map((tick, index) => (
-                    <div key={`${tick}-${index}`} className="flex items-center gap-2">
-                      <span className="w-5 text-right">{tick.toLocaleString()}</span>
-                      <div className={`flex-1 border-b ${index === chartTicks.length - 1 ? 'border-slate-200 dark:border-slate-700' : 'border-indigo-50/90 dark:border-slate-800'}`} />
-                    </div>
-                  ))}
-                </div>
-
-                <div className="absolute inset-0 left-8 right-2 bottom-5 top-1">
-                  <svg className="w-full h-full overflow-visible" viewBox="0 0 700 140" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="actualGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6366F1" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="#EEF2FF" stopOpacity="0.0" />
-                      </linearGradient>
-                      <linearGradient id="targetGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#C7D2FE" stopOpacity="0.25" />
-                        <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {hasProductionData ? (
-                      <>
-                        <path
-                          d={areaPath(targetPoints)}
-                          fill="url(#targetGradient)"
-                        />
-                        <path
-                          d={linePath(targetPoints)}
-                          fill="none"
-                          stroke="#A5B4FC"
-                          strokeWidth="2"
-                          strokeDasharray="4 4"
-                        />
-                        <path
-                          d={areaPath(actualPoints)}
-                          fill="url(#actualGradient)"
-                        />
-                        <path
-                          d={linePath(actualPoints)}
-                          fill="none"
-                          stroke="#4F46E5"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                        />
-                        {actualPoints.map((point, index) => (
-                          <circle
-                            key={productionTrends[index].day}
-                            cx={point.x}
-                            cy={point.y}
-                            r="3.5"
-                            fill="#4F46E5"
-                            stroke="#FFFFFF"
-                            strokeWidth="2"
-                          >
-                            <title>{`${productionTrends[index].day}: ${productionTrends[index].actual} pieces`}</title>
-                          </circle>
-                        ))}
-                      </>
-                    ) : null}
-                  </svg>
-                </div>
-
-                <div className="absolute bottom-0 left-8 right-2 flex justify-between text-[10px] font-semibold text-slate-400">
-                  {productionTrends.map((trend) => (
-                    <span key={trend.day}>{trend.day}</span>
-                  ))}
-                </div>
-              </div>
-
-              {!hasProductionData && (
-                <p className="text-[10px] text-center text-slate-400 mt-1 italic">
-                  No output or scheduled target is recorded for this week yet. Use “+ Log Output” to add entries.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Right (1 col): Material Stock Notices (3D Parcel Box & Botanical Corner Shapes) */}
-          <div className="bg-white/95 dark:bg-slate-900/95 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            {/* Background Corner Wave & Botanical Leaf Watermarks */}
-            <div className="pointer-events-none absolute -bottom-5 -left-5 w-28 h-28 opacity-45 dark:opacity-20 z-0">
-              <svg viewBox="0 0 100 100" fill="none" className="w-full h-full">
-                <path d="M0 60 C 30 50, 50 80, 100 60 L 100 100 L 0 100 Z" fill="#E0E7FF" />
-                <path d="M15 70 C 25 55, 40 50, 50 65 C 38 75, 25 80, 15 70 Z" fill="#818CF8" fillOpacity="0.25" />
-              </svg>
-            </div>
-            <div className="pointer-events-none absolute -bottom-5 -right-5 w-28 h-28 opacity-40 dark:opacity-20 z-0">
-              <svg viewBox="0 0 120 120" fill="none" className="w-full h-full">
-                <path d="M100 30 C 95 60, 60 90, 20 110 C 60 110, 90 90, 110 50 Z" fill="#EDE9FE" />
-                {/* Delicate Botanical Leaf Arc */}
-                <path d="M85 45 C 95 60, 80 80, 60 85 C 65 70, 80 55, 85 45 Z" fill="#A78BFA" fillOpacity="0.3" />
-              </svg>
             </div>
 
-            <div className="relative z-10">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                    <Bell className="w-3.5 h-3.5" />
-                  </div>
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Material Stock Notices</h3>
-                </div>
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
-                  {alerts.lowStockTrimsCount} Items
-                </span>
-              </div>
-
-              {/* Clean Empty State with 3D Isometric Parcel Graphic */}
-              {alerts.lowStockTrims.length === 0 ? (
-                <div className="py-4 text-center">
-                  <div className="w-20 h-20 mx-auto relative flex items-center justify-center">
-                    <svg viewBox="0 0 140 140" fill="none" className="w-full h-full">
-                      {/* Shadow */}
-                      <ellipse cx="70" cy="115" rx="42" ry="10" fill="#E0E7FF" opacity="0.8" />
-                      {/* Box faces */}
-                      <path d="M70 65 L25 88 L70 112 L115 88 Z" fill="#4F46E5" />
-                      <path d="M25 88 L70 112 L70 118 L25 94 Z" fill="#4338CA" />
-                      <path d="M70 112 L115 88 L115 94 L70 118 Z" fill="#3730A3" />
-                      {/* Open Flaps */}
-                      <path d="M70 65 L25 88 L15 65 L60 42 Z" fill="#818CF8" />
-                      <path d="M70 65 L115 88 L125 65 L80 42 Z" fill="#6366F1" />
-                      <path d="M70 65 L60 42 L70 20 L80 42 Z" fill="#A5B4FC" />
-                      {/* Sparkles */}
-                      <path d="M30 40 Q 30 48, 22 48 Q 30 48, 30 56 Q 30 48, 38 48 Q 30 48, 30 40 Z" fill="#60A5FA" />
-                      <path d="M108 35 Q 108 42, 102 42 Q 108 42, 108 49 Q 108 42, 114 42 Q 108 42, 108 35 Z" fill="#A78BFA" />
-                      <circle cx="115" cy="65" r="2" fill="#818CF8" />
-                      <circle cx="28" cy="70" r="1.5" fill="#38BDF8" />
+            <div className="flex-1 min-h-[200px]">
+              {branchStock.length > 0 ? (
+                <div className="flex flex-col h-full">
+                  <div className="flex-1 relative">
+                    <svg
+                      className="w-full h-full"
+                      viewBox={`0 0 ${Math.max(400, branchStock.length * 100 + 40)} 220`}
+                      preserveAspectRatio="none"
+                    >
+                      {branchStock.map((branch, i) => {
+                        const total = branch.finishedGoods + branch.fabricMeters + branch.trimUnits;
+                        const allTotal = branchStock.reduce((sum, b) => sum + b.finishedGoods + b.fabricMeters + b.trimUnits, 0);
+                        const pct = allTotal > 0 ? (total / allTotal) * 100 : 0;
+                        const barHeight = Math.max(pct * 1.8, 10);
+                        const x = i * 100 + 20;
+                        const colors = ['#4F46E5', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
+                        return (
+                          <g key={i}>
+                            <rect x={x} y={220 - barHeight - 30} width={60} height={barHeight} fill={colors[i % colors.length]} />
+                            <text x={x + 30} y={215} textAnchor="middle" fontSize="9" fill="#64748B">{branch.branch}</text>
+                            <text x={x + 30} y={220 - barHeight - 35} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#1E293B">
+                              {total.toLocaleString()}
+                            </text>
+                          </g>
+                        );
+                      })}
                     </svg>
                   </div>
-
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
-                    No stock alerts at the moment!
-                  </p>
-                  <p className="text-[10px] text-indigo-400 font-medium mt-0.5">
-                    Everything is running smoothly!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 py-1">
-                  {alerts.lowStockTrims.map((item, idx) => (
-                    <div key={idx} className="p-2.5 rounded-xl bg-indigo-50/40 dark:bg-slate-800/60 border border-indigo-100 dark:border-indigo-900/50 text-xs">
-                      <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
-                        <span>{item.name}</span>
-                        <span className="text-red-600 font-extrabold">
-                          {item.current} {item.unit}
+                  <div className="mt-3 space-y-1">
+                    {branchStock.map((branch, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[10px]">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#4F46E5', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'][i % 5] }} />
+                        <span className="text-slate-600 dark:text-slate-400 truncate w-16">{branch.branch}</span>
+                        <span className="ml-auto text-slate-900 dark:text-white font-medium">
+                          FG: {branch.finishedGoods.toLocaleString()} · Fabric: {branch.fabricMeters.toLocaleString()}m · Trim: {branch.trimUnits.toLocaleString()}
                         </span>
                       </div>
-                      <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
-                        <span>Minimum Stock:</span>
-                        <span>{item.min} {item.unit}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center">
+                  <Layers className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="text-[10px] text-slate-400 font-medium">No stock data available</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Add inventory to see branch distribution</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════════════════
+            5. PAYMENT DUE LIST & STOCK ALERTS (row)
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 relative z-10">
+          {/* Payment Due List */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Payment Due List</h3>
+                  <p className="text-[9px] text-slate-400">Outstanding customer invoices</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700/60">
+                    {['Invoice', 'Date', 'Branch', 'Amount', 'Due', 'Customer'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-700/50">
+                  {paymentDue.length > 0 ? (
+                    paymentDue.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="px-3 py-2.5 text-[10px] font-medium text-slate-700 dark:text-slate-300">
+                          {item.invoiceNumber}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {formatDate(item.date)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.branch || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400">
+                          {formatCurrency(item.amount, currencySymbol)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                          {formatCurrency(item.dueAmount, currencySymbol)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[120px]">
+                          {item.customer || '—'}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-[10px] text-slate-400">
+                        No outstanding payments.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Stock Alert List */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Stock Alert List</h3>
+                  <p className="text-[9px] text-slate-400">Low-stock items needing reorder</p>
+                </div>
+              </div>
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                stockAlerts.length > 0 ? 'bg-rose-100 text-rose-700 border-rose-200/80' : 'bg-emerald-100 text-emerald-700 border-emerald-200/80'
+              }`}>
+                {stockAlerts.length} item{stockAlerts.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto max-h-[280px]">
+              {stockAlerts.length > 0 ? (
+                <div className="space-y-2">
+                  {stockAlerts.map((item, idx) => (
+                    <div key={idx} className="p-2.5 rounded-xl bg-amber-50/60 dark:bg-slate-800/60 border border-amber-100 dark:border-amber-900/50 flex items-start gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between text-slate-800 dark:text-slate-200 font-semibold leading-snug">
+                          <span className="truncate">{item.name}</span>
+                          <span className="text-rose-600 font-extrabold">{item.current} {item.unit}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[9px] mt-0.5">
+                          <span>SKU: {item.sku || '—'}</span>
+                          <span>Min: {item.min} {item.unit}</span>
+                          <span className="text-xs">{item.warehouse || '—'}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="py-4 text-center text-slate-400">
+                  <Bell className="w-6 h-6 mx-auto text-indigo-200 dark:text-indigo-400/30 mb-1.5" />
+                  <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">No stock alerts</p>
+                  <p className="text-[10px] text-slate-400">All items are above reorder levels</p>
+                </div>
               )}
             </div>
-
-            <Link
-              href="/procurement"
-              className="mt-3 flex items-center justify-center gap-1 w-full py-2 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-white/80 dark:bg-slate-800 hover:bg-indigo-50/50 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-[11px] font-bold transition-colors cursor-pointer relative z-10"
-            >
-              <span>Procurement & Purchase Orders</span>
-              <ChevronRight className="w-3 h-3" />
-            </Link>
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════════════════════════════
-            4. RECENT ACTIVITY & AUDIT TRAIL
-            ══════════════════════════════════════════════════════════════════════ */}
-        <div className="bg-white/95 dark:bg-slate-900/95 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-xs relative overflow-hidden">
-          {/* Subtle Decorative Corner Waves & Botanical Flourish */}
-          <div className="pointer-events-none absolute right-0 bottom-0 w-44 h-24 overflow-hidden z-0 opacity-40 dark:opacity-20">
-            <svg viewBox="0 0 180 90" fill="none" className="w-full h-full" preserveAspectRatio="none">
-              <path d="M0 90 C 50 50, 110 80, 180 40 L 180 90 Z" fill="url(#auditWave1)" />
-              <path d="M40 90 C 90 60, 135 80, 180 65 L 180 90 Z" fill="url(#auditWave2)" />
-              <defs>
-                <linearGradient id="auditWave1" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#818CF8" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#C084FC" stopOpacity="0.08" />
-                </linearGradient>
-                <linearGradient id="auditWave2" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#818CF8" stopOpacity="0.05" />
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
-          <div className="pointer-events-none absolute right-2 top-2 w-16 h-16 z-0 opacity-30 dark:opacity-15">
-            <svg viewBox="0 0 60 60" fill="none" className="w-full h-full">
-              <path d="M55 5 C 40 18, 25 35, 18 55" stroke="#818CF8" strokeWidth="1" strokeOpacity="0.35" strokeLinecap="round" />
-              <path d="M42 18 C 30 14, 25 24, 35 28 C 42 30, 45 24, 42 18 Z" fill="#818CF8" fillOpacity="0.25" />
-            </svg>
-          </div>
-
-          <div className="flex items-center justify-between mb-3 relative z-10">
-            <div>
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white">Recent Activity & Audit Trail</h3>
-              <p className="text-[10px] text-slate-400">Live audit log of real events and user actions</p>
-            </div>
-            <Link
-              href="/admin"
-              className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
-            >
-              <span>View Full Trail</span>
-              <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-
-          {(data?.recentAudits || []).length === 0 ? (
-            <div className="py-4 text-center text-slate-400 relative z-10">
-              <Clock className="w-6 h-6 mx-auto text-indigo-200 dark:text-indigo-400/30 mb-1.5" />
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">No actions logged yet</p>
-              <p className="text-[10px] text-slate-400">Transactions and logs will appear here automatically</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 relative z-10">
-              {(data?.recentAudits || []).slice(0, 6).map((audit, idx) => (
-                <div key={idx} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60 flex items-start gap-2 text-xs">
-                  <Clock className="w-3.5 h-3.5 text-indigo-500 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-slate-800 dark:text-slate-200 font-semibold leading-snug">{audit.description}</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5 font-medium">
-                      By {audit.userName} • {audit.module}
-                    </p>
-                  </div>
+        {/* ══════════════════════════════════════════════════════════════════════════
+            6. DASHBOARD CALENDAR & TO DO LIST (row)
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 relative z-10">
+          {/* Dashboard Calendar */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Calendar className="w-4 h-4" />
                 </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">Dashboard Calendar</h3>
+                  <p className="text-[9px] text-slate-400">Month · Week · Day view</p>
+                </div>
+              </div>
+              <div className="flex gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(calendarDate);
+                    d.setMonth(d.getMonth() - 1);
+                    setCalendarDate(d);
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[10px] font-bold border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 flex items-center gap-1"
+                >
+                  ←
+                </button>
+                <span className="px-2 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-600 text-white border-indigo-600">
+                  {calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(calendarDate);
+                    d.setMonth(d.getMonth() + 1);
+                    setCalendarDate(d);
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[10px] font-bold border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 flex items-center gap-1"
+                >
+                  →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarDate(new Date())}
+                  className="px-2 py-1.5 rounded-lg text-[10px] font-bold border bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-indigo-50 flex items-center gap-1"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-1 mb-3">
+              {['month', 'week', 'day'].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setCalendarView(v)}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    calendarView === v
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
+                </button>
               ))}
             </div>
-          )}
+
+            <div className="flex-1 min-h-[280px] relative">
+              {/* Month view grid */}
+              {calendarView === 'month' && (
+                <div className="flex flex-col h-full">
+                  {/* Weekday headers in one proper horizontal row */}
+                  <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[10px] text-slate-500 dark:text-slate-400 py-1.5 border-b border-slate-100 dark:border-slate-800">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                      <div key={day} className="py-0.5">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 7-column Month grid */}
+                  <div className="grid grid-cols-7 gap-1 mt-1.5 flex-1">
+                    {(() => {
+                      const year = calendarDate.getFullYear();
+                      const month = calendarDate.getMonth();
+                      const firstDay = new Date(year, month, 1).getDay();
+                      const daysInMonth = new Date(year, month + 1, 0).getDate();
+                      const today = new Date();
+                      const isToday = (d) =>
+                        d.getDate() === today.getDate() &&
+                        d.getMonth() === today.getMonth() &&
+                        d.getFullYear() === today.getFullYear();
+                      const isSelected = (d) =>
+                        selectedDate &&
+                        d.getDate() === selectedDate.getDate() &&
+                        d.getMonth() === selectedDate.getMonth() &&
+                        d.getFullYear() === selectedDate.getFullYear();
+
+                      const cells = [];
+                      for (let i = 0; i < firstDay; i++) {
+                        cells.push(
+                          <div
+                            key={`empty-${i}`}
+                            className="h-11 p-1 rounded-lg border border-transparent bg-slate-50/20 dark:bg-slate-900/20"
+                          />
+                        );
+                      }
+
+                      for (let day = 1; day <= daysInMonth; day++) {
+                        const currentCellDate = new Date(year, month, day);
+                        const dateStr = currentCellDate.toISOString().slice(0, 10);
+                        const dayEvents = eventsByDate.get(dateStr) || [];
+                        const isTodayDay = isToday(currentCellDate);
+                        const isSelectedDay = isSelected(currentCellDate);
+
+                        cells.push(
+                          <div
+                            key={day}
+                            onClick={() => {
+                              setSelectedDate(currentCellDate);
+                              setNewEventStartDate(dateStr);
+                              setNewEventEndDate(dateStr);
+                            }}
+                            className={`p-1 text-[10px] rounded-lg border transition-all cursor-pointer flex flex-col justify-between h-11 relative ${
+                              isSelectedDay
+                                ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                : isTodayDay
+                                ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50/20 dark:bg-slate-800 text-slate-800 dark:text-slate-100'
+                                : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 hover:border-indigo-200 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span
+                                className={`text-[10px] ${
+                                  isTodayDay
+                                    ? 'w-4 h-4 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[9px]'
+                                    : isSelectedDay
+                                    ? 'font-bold text-indigo-600 dark:text-indigo-400'
+                                    : 'font-medium text-slate-600 dark:text-slate-400'
+                                }`}
+                              >
+                                {day}
+                              </span>
+                              {dayEvents.length > 0 && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+                              )}
+                            </div>
+
+                            {dayEvents.length > 0 ? (
+                              <div
+                                className="px-1 py-0.5 rounded bg-indigo-600/90 text-white text-[8px] leading-tight truncate font-medium cursor-pointer"
+                                title={dayEvents.map((e) => e.title).join(', ')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditEventStart(dayEvents[0]);
+                                }}
+                              >
+                                {dayEvents[0].title}
+                                {dayEvents.length > 1 ? ` (+${dayEvents.length - 1})` : ''}
+                              </div>
+                            ) : (
+                              <div className="h-2" />
+                            )}
+                          </div>
+                        );
+                      }
+                      return cells;
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Week view */}
+              {calendarView === 'week' && (
+                <div className="flex flex-col h-full">
+                  {(() => {
+                    const start = startOfWeek(calendarDate);
+                    const days = Array.from({ length: 7 }, (_, i) => new Date(start.getTime() + i * dayMs));
+                    const today = new Date();
+                    const isSameDay = (d1, d2) =>
+                      d1.getDate() === d2.getDate() &&
+                      d1.getMonth() === d2.getMonth() &&
+                      d1.getFullYear() === d2.getFullYear();
+
+                    return (
+                      <>
+                        <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[10px] text-slate-500 dark:text-slate-400 py-1.5 border-b border-slate-100 dark:border-slate-800">
+                          {days.map((d) => (
+                            <div key={d.toISOString()} className="py-0.5">
+                              <div>{d.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                              <div className={`text-[10px] ${isSameDay(d, today) ? 'text-indigo-600 font-bold' : 'text-slate-400'}`}>
+                                {d.getDate()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 mt-1.5 flex-1 min-h-[140px]">
+                          {days.map((d) => {
+                            const dateStr = d.toISOString().slice(0, 10);
+                            const dayEvents = eventsByDate.get(dateStr) || [];
+                            const isTodayDay = isSameDay(d, today);
+                            const isSelectedDay = isSameDay(d, selectedDate);
+
+                            return (
+                              <div
+                                key={dateStr}
+                                onClick={() => {
+                                  setSelectedDate(d);
+                                  setNewEventStartDate(dateStr);
+                                  setNewEventEndDate(dateStr);
+                                }}
+                                className={`p-1.5 rounded-lg border text-[10px] flex flex-col gap-1 transition-all cursor-pointer ${
+                                  isSelectedDay
+                                    ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/30'
+                                    : isTodayDay
+                                    ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50/10'
+                                    : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:bg-slate-50'
+                                }`}
+                              >
+                                {dayEvents.length > 0 ? (
+                                  dayEvents.map((ev) => (
+                                    <div
+                                      key={ev.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditEventStart(ev);
+                                      }}
+                                      className="p-1 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900 text-[9px] text-indigo-700 dark:text-indigo-300 truncate"
+                                      title={ev.title}
+                                    >
+                                      {ev.title}
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-[9px] text-slate-300 dark:text-slate-600 text-center mt-2">—</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Day view */}
+              {calendarView === 'day' && (
+                <div className="flex flex-col h-full">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 mb-2">
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      {(selectedDate || calendarDate).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      {(eventsByDate.get((selectedDate || calendarDate).toISOString().slice(0, 10)) || []).length} event(s)
+                    </span>
+                  </div>
+
+                  <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[220px]">
+                    {(() => {
+                      const dateStr = (selectedDate || calendarDate).toISOString().slice(0, 10);
+                      const dayEvents = eventsByDate.get(dateStr) || [];
+                      if (dayEvents.length === 0) {
+                        return (
+                          <div className="py-8 flex flex-col items-center justify-center text-center">
+                            <Clock className="w-6 h-6 text-slate-300 mb-1" />
+                            <p className="text-[11px] text-slate-500 font-medium">No events scheduled for this day</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">Add an appointment or task using the form below</p>
+                          </div>
+                        );
+                      }
+                      return dayEvents.map((ev) => (
+                        <div
+                          key={ev.id}
+                          className="p-2 rounded-lg border border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/80 flex items-start justify-between gap-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 dark:text-white leading-snug">{ev.title}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              {ev.startTime ? `${ev.startTime}${ev.endTime ? ` – ${ev.endTime}` : ''}` : 'All day'}
+                            </div>
+                            {ev.description && (
+                              <div className="text-[10px] text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">{ev.description}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEditEventStart(ev)}
+                              className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 cursor-pointer"
+                              title="Edit event"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEvent(ev.id)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 cursor-pointer"
+                              title="Delete event"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Event Edit Modal / Form */}
+            {editingEvent && (
+              <form onSubmit={handleEditEventSave} className="p-3 mt-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 space-y-2">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <span>Edit Event</span>
+                  <button type="button" onClick={() => setEditingEvent(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={editingEvent.title}
+                  onChange={(e) => setEditingEvent({ ...editingEvent, title: e.target.value })}
+                  placeholder="Event Title"
+                  className="w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={editingEvent.startDate}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, startDate: e.target.value })}
+                    className="px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                  <input
+                    type="date"
+                    value={editingEvent.endDate}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, endDate: e.target.value })}
+                    className="px-2 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingEvent(null)}
+                    className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Event Creation Form */}
+            <form onSubmit={handleAddEvent} className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2 relative z-10">
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="Event title…"
+                  value={newEventTitle}
+                  onChange={(e) => setNewEventTitle(e.target.value)}
+                  className="flex-1 w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="date"
+                  value={newEventStartDate || (selectedDate ? selectedDate.toISOString().slice(0, 10) : '')}
+                  onChange={(e) => {
+                    setNewEventStartDate(e.target.value);
+                    if (!newEventEndDate) setNewEventEndDate(e.target.value);
+                  }}
+                  className="w-32 px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="submit"
+                  disabled={calendarLoading || !newEventTitle.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Add</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* To Do List */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 shadow-sm flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <Check className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-white">To Do List</h3>
+                  <p className="text-[9px] text-slate-400">Tasks assigned to you</p>
+                </div>
+              </div>
+              <div className="flex gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setTodoFilter('all')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    todoFilter === 'all'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTodoFilter('pending')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    todoFilter === 'pending'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Incomplete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTodoFilter('completed')}
+                  className={`px-2.5 py-1 rounded text-[9px] font-semibold border transition-colors ${
+                    todoFilter === 'completed'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60 hover:bg-indigo-50 dark:hover:bg-slate-700/40'
+                  }`}
+                >
+                  Completed
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-[200px] overflow-y-auto">
+              {editingTodoId ? (
+                <form onSubmit={handleEditTodoSave} className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/20 mb-3">
+                  <input
+                    type="text"
+                    value={editTodoTitle}
+                    onChange={(e) => setEditTodoTitle(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400"
+                  />
+                  <div className="flex gap-1 mt-2">
+                    <button
+                      type="submit"
+                      className="flex-1 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-700"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleEditTodoCancel}
+                      className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold hover:bg-indigo-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleAddTodo} className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/20 mb-3">
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      placeholder="New task…"
+                      value={newTodoTitle}
+                      onChange={(e) => setNewTodoTitle(e.target.value)}
+                      className="flex-1 w-full px-2.5 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400"
+                    />
+                    <input
+                      type="date"
+                      value={newTodoDueDate}
+                      onChange={(e) => setNewTodoDueDate(e.target.value)}
+                      className="w-24 px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400"
+                    />
+                    <button
+                      type="submit"
+                      disabled={todoLoading}
+                      className="px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Description (optional)"
+                    value={newTodoDesc}
+                    onChange={(e) => setNewTodoDesc(e.target.value)}
+                    className="w-full mt-1 px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400"
+                  />
+                </form>
+              )}
+
+              <div className="space-y-1">
+                {todos.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400">
+                    <Check className="w-6 h-6 mx-auto text-indigo-200 dark:text-indigo-400/30 mb-1.5" />
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">No tasks</p>
+                    <p className="text-[10px] text-slate-400">Add a task to get started</p>
+                  </div>
+                ) : (
+                  todos.map((todo) => (
+                    <div
+                      key={todo.id}
+                      className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white dark:bg-slate-800/70 flex items-start gap-2.5"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTodo(todo)}
+                        className="mt-0.5 shrink-0"
+                      >
+                        <CheckCircle2
+                          className={`w-4 h-4 ${
+                            todo.status === 'completed'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-slate-300 hover:text-indigo-400'
+                          }`}
+                        />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        {editingTodoId === todo.id ? (
+                          <input
+                            type="text"
+                            value={editTodoTitle}
+                            onChange={(e) => setEditTodoTitle(e.target.value)}
+                            onBlur={handleEditTodoSave}
+                            className="w-full px-2 py-1 text-xs border border-indigo-400 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                            autoFocus
+                          />
+                        ) : (
+                          <div className="flex justify-between items-start">
+                            <span className={`text-xs leading-snug ${todo.status === 'completed' ? 'line-through text-slate-500' : 'text-slate-700 dark:text-slate-200'}`}>
+                              {todo.title}
+                            </span>
+                            <div className="flex gap-1 ml-2">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleEditTodoStart(todo); }}
+                                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                              >
+                                <Edit className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteTodo(todo.id); }}
+                                className="text-slate-400 hover:text-rose-600"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {todo.dueDate && (
+                          <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                            {formatDate(todo.dueDate)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </Layout>

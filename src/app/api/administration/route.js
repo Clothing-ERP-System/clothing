@@ -10,6 +10,7 @@ import { successResponse, errorResponse, fromError } from '@/lib/api-response.js
 import { deleteRecord, pickFields, updateRecord } from '@/lib/query.js';
 import { publicUser, withAuthorization } from '@/lib/authorization.js';
 import { BUILT_IN_ROLES, ERP_MODULES, ROLE_ACTIONS } from '@/lib/role-definitions.js';
+import { evaluatePasswordStrength } from '@/lib/password-policy.js';
 
 const rolePermissionKeys = new Set(
   ERP_MODULES.flatMap((module) => ROLE_ACTIONS.map((permission) => `${module}:${permission}`))
@@ -247,7 +248,7 @@ async function handleUpdateCompany(request, actor, body) {
         financialYearEnd: payload.financialYearEnd || '',
         taxSettings: payload.taxSettings || { defaultTaxRate: 0, taxName: 'Sales Tax', taxRegistrationNumber: '' },
         accountingMappings: payload.accountingMappings || {},
-        onboardingCompleted: false,
+        onboardingCompleted: payload.onboardingCompleted === true,
       });
     }
   }
@@ -276,9 +277,9 @@ async function postAdministration(request, actor) {
       const { name, email, password, role, branch, department, phone } = body;
       const assignedRole = role || 'GeneralManager';
       const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-      if (!name?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) ||
-        typeof password !== 'string' || password.length < 12) {
-        return errorResponse('Enter a name, valid email, and password of at least 12 characters', 400);
+      const strength = evaluatePasswordStrength(password);
+      if (!name?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || !strength.isValid) {
+        return errorResponse('Enter a name, valid email, and a strong password meeting all complexity criteria (at least 12 characters, uppercase, lowercase, number, and special character)', 400);
       }
       if (!await roleExists(assignedRole)) {
         return errorResponse('Select a supported user role', 400);
@@ -429,8 +430,9 @@ async function postAdministration(request, actor) {
 
     if (action === 'RESET_USER_PASSWORD') {
       const { userId, newPassword } = body;
-      if (!userId || typeof newPassword !== 'string' || newPassword.length < 12) {
-        return errorResponse('User ID and a new password of at least 12 characters are required', 400);
+      const strength = evaluatePasswordStrength(newPassword);
+      if (!userId || !strength.isValid) {
+        return errorResponse('User ID and a strong new password meeting all complexity criteria (at least 12 characters, uppercase, lowercase, number, and special character) are required', 400);
       }
       const target = await User.findByIdForUpdate(userId);
       if (!target) return errorResponse('User not found', 404);

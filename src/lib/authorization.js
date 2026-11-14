@@ -113,7 +113,13 @@ export function withAuthorization(handler, module, operation = 'read', forcedAct
     if (args[0]) args[0].user = user;
     const handlerArgs = args[0] ? [args[0], user, ...args.slice(1)] : [user];
 
-    if (operation !== 'write') return handler(...handlerArgs);
+    if (operation !== 'write') {
+      try {
+        return await handler(...handlerArgs);
+      } catch (error) {
+        return fromError(error, 503);
+      }
+    }
 
     // CSRF protection for state-changing write operations.
     // Validates the X-CSRF-Token header against the csrf_token cookie

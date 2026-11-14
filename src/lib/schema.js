@@ -33,6 +33,9 @@ import { DyeRecipe, DyeJobCard } from '@/models/Dyeing.js';
 import GRNIReconciliation from '@/models/GRNIReconciliation.js';
 import ResidualGRNI from '@/models/ResidualGRNI.js';
 import LoginRateLimit from '@/models/LoginRateLimit.js';
+import Todo from '@/models/Todo.js';
+import CalendarEvent from '@/models/CalendarEvent.js';
+import HandoverInvitation from '@/models/HandoverInvitation.js';
 import { ensureRegisteredTables } from '@/lib/mysql-model.js';
 
 const models = [
@@ -42,7 +45,7 @@ const models = [
   WarehouseTransfer, POSTransaction, POSSession, Employee,
   AttendanceRecord, PayrollSlip, AccountHead, JournalEntry, ExpenseRecord, IncomeRecord,
   CRMLead, MarketingCampaign, Asset, VehicleTrip, DyeRecipe, DyeJobCard,
-  GRNIReconciliation, ResidualGRNI, LoginRateLimit,
+  GRNIReconciliation, ResidualGRNI, LoginRateLimit, Todo, CalendarEvent, HandoverInvitation,
 ];
 
 export async function initializeErpSchema() {

@@ -213,6 +213,7 @@ export default function ClientOnboardingPage() {
       if (!res.ok) { addToast(json.message || 'Company save failed', 'error'); return; }
       addToast('Company profile saved', 'success');
       setStepStatus(prev => ({ ...prev, [0]: 'completed' }));
+      handleNext();
     } catch { addToast('Network error saving company profile', 'error'); }
   };
 
@@ -233,6 +234,7 @@ export default function ClientOnboardingPage() {
       if (!res.ok) { addToast(json.message || 'Financial settings save failed', 'error'); return; }
       addToast('Financial year and currency saved', 'success');
       setStepStatus(prev => ({ ...prev, [1]: 'completed' }));
+      handleNext();
     } catch { addToast('Network error saving financial settings', 'error'); }
   };
 
@@ -253,6 +255,7 @@ export default function ClientOnboardingPage() {
       }
       addToast('Chart of accounts saved', 'success');
       setStepStatus(prev => ({ ...prev, [2]: 'completed' }));
+      handleNext();
     } catch { addToast('Network error saving accounts', 'error'); }
   };
 
@@ -287,6 +290,7 @@ export default function ClientOnboardingPage() {
     // Locations are saved individually as they are created
     setStepStatus(prev => ({ ...prev, [3]: 'completed' }));
     addToast('Warehouse locations step completed', 'success');
+    handleNext();
   };
 
   const handleSaveTax = async (e) => {
@@ -308,6 +312,7 @@ export default function ClientOnboardingPage() {
       if (!res.ok) { addToast(json.message || 'Tax settings save failed', 'error'); return; }
       addToast('Tax settings saved', 'success');
       setStepStatus(prev => ({ ...prev, [4]: 'completed' }));
+      handleNext();
     } catch { addToast('Network error saving tax settings', 'error'); }
   };
 
@@ -333,8 +338,45 @@ export default function ClientOnboardingPage() {
         return;
       }
 
-      // Save company profile
-      await apiFetch('/api/administration', {
+      // Build accounting mappings from essential accounts.
+      // These map functional roles (GRNI, Payable, COGS, etc.) to the account codes
+      // configured in the chart of accounts step. Required before onboarding can complete.
+      const codeToMapping = {
+        '1020': 'bankAccountCode',
+        '1030': 'salesReceivableAccountCode',
+        '1050': 'inventoryAccountCode',
+        '2010': 'payableAccountCode',
+        '2030': 'grniAccountCode',
+        '2035': 'inputTaxAccountCode',
+        '3100': 'openingBalanceEquityAccountCode',
+        '4010': 'salesRevenueAccountCode',
+        '5010': 'expenseAccountCode',
+        '5020': 'cogsAccountCode',
+      };
+      const accountingMappings = {};
+      for (const acc of accounts) {
+        const mappingKey = codeToMapping[acc.code];
+        if (mappingKey) accountingMappings[mappingKey] = acc.code;
+      }
+
+      // Save accounts FIRST so they exist before company mappings reference them.
+      for (const acc of accounts) {
+        const res = await apiFetch('/api/finance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'CREATE_ACCOUNT', ...acc }),
+        });
+        if (!res.ok) {
+          const json = await res.json();
+          if (!json.message || !json.message.includes('already exists')) {
+            addToast(json.message || 'Failed to create account ' + acc.code, 'error');
+            return;
+          }
+        }
+      }
+
+      // Save company profile with accounting mappings and mark onboarding complete.
+      const companyRes = await apiFetch('/api/administration', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -344,30 +386,34 @@ export default function ClientOnboardingPage() {
           financialYearEnd: financial.financialYearEnd,
           currency: financial.currency,
           taxSettings,
+          accountingMappings,
+          locations,  // Use locally-populated locations; company.locations is stale []
           onboardingCompleted: true,
         }),
       });
-
-      // Save accounts (skip existing)
-      for (const acc of accounts) {
-        await apiFetch('/api/finance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'CREATE_ACCOUNT', ...acc }),
-        });
+      if (!companyRes.ok) {
+        const json = await companyRes.json();
+        addToast(json.message || 'Failed to complete onboarding', 'error');
+        return;
       }
 
       // Save locations
       for (const loc of locations) {
-        await apiFetch('/api/location', {
+        const locRes = await apiFetch('/api/location', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'CREATE_LOCATION', ...loc }),
         });
+        if (!locRes.ok) {
+          const json = await locRes.json();
+          addToast(json.message || 'Failed to create location ' + loc.locationCode, 'error');
+          return;
+        }
       }
 
       setActiveStep(STEPS.length - 1);
       addToast('Onboarding complete! Your ERP is configured.', 'success');
+      router.push('/');
     } catch { addToast('Error completing onboarding', 'error'); }
     finally { setSubmitting(false); }
   };
@@ -536,7 +582,7 @@ export default function ClientOnboardingPage() {
               </button>
               <button
                 type="button"
-                onClick={handleNext}
+                onClick={handleSaveCompany}
                 disabled={!canAdvance(0)}
                 className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#4F46E5] hover:bg-[#4338CA] rounded-lg shadow-sm disabled:opacity-50 transition-colors whitespace-nowrap"
               >

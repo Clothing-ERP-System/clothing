@@ -3,12 +3,21 @@ import { pool, runInTransaction } from '@/lib/db.js';
 import User from '@/models/User.js';
 import { hashPassword, generateToken, COOKIE_NAME } from '@/lib/auth.js';
 import { errorResponse, successResponse } from '@/lib/api-response.js';
+import { evaluatePasswordStrength } from '@/lib/password-policy.js';
 
 export async function GET() {
   try {
+    const userCount = await User.countDocuments();
+    const isSetupRequired = userCount === 0;
+    const tokenConfigured = Boolean(
+      process.env.INITIAL_SUPERADMIN_SETUP_TOKEN &&
+      process.env.INITIAL_SUPERADMIN_SETUP_TOKEN.length >= 32
+    );
+
     return successResponse({
-      setupRequired: (await User.countDocuments()) === 0,
-      setupAvailable: Boolean(process.env.INITIAL_SUPERADMIN_SETUP_TOKEN),
+      setupRequired: isSetupRequired,
+      setupAvailable: isSetupRequired,
+      tokenRequired: tokenConfigured,
     });
   } catch (error) {
     console.error('Workspace setup check failed:', error);
@@ -25,19 +34,25 @@ export async function POST(request) {
     const password = String(body.password || '');
     const setupToken = typeof body.setupToken === 'string' ? body.setupToken : '';
     const configuredToken = process.env.INITIAL_SUPERADMIN_SETUP_TOKEN;
+    const tokenRequired = Boolean(configuredToken && configuredToken.length >= 32);
 
-    if (!configuredToken || configuredToken.length < 32) {
-      return errorResponse('Initial SuperAdmin setup is disabled. Configure INITIAL_SUPERADMIN_SETUP_TOKEN on the server.', 503);
+    if (tokenRequired) {
+      const providedToken = Buffer.from(setupToken);
+      const expectedToken = Buffer.from(configuredToken);
+      if (providedToken.length !== expectedToken.length || !timingSafeEqual(providedToken, expectedToken)) {
+        return errorResponse('Invalid owner setup token', 403);
+      }
     }
 
-    const providedToken = Buffer.from(setupToken);
-    const expectedToken = Buffer.from(configuredToken);
-    if (providedToken.length !== expectedToken.length || !timingSafeEqual(providedToken, expectedToken)) {
-      return errorResponse('Invalid owner setup token', 403);
+    const strength = evaluatePasswordStrength(password);
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return errorResponse('Enter your name and a valid email address.', 400);
     }
-
-    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 12) {
-      return errorResponse('Enter your name, a valid email, and a password of at least 12 characters.', 400);
+    if (!strength.isValid) {
+      return errorResponse(
+        'Password does not meet mandatory security requirements (at least 12 characters, uppercase, lowercase, number, and special character).',
+        400
+      );
     }
 
     connection = await pool.getConnection();

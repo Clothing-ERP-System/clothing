@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1B4B" stop-opacity="0.85" />
+      <stop offset="50%" stop-color="#312E81" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="indigoCard" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#4338CA" stop-opacity="0.05" />
+    </linearGradient>
+    <linearGradient id="glowLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0" />
+      <stop offset="50%" stop-color="#818CF8" stop-opacity="1" />
+      <stop offset="100%" stop-color="#A5B4FC" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="accentTeal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#0891B2" />
+    </linearGradient>
+    <linearGradient id="accentEmerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="fabricRoll" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="70%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#3730A3" />
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Base Container -->
+  <rect width="800" height="600" rx="24" fill="url(#bgGrad)" />
+  <rect width="800" height="600" rx="24" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" />
+
+  <!-- Subtle Factory Floor Grid Perspective -->
+  <g opacity="0.12">
+    <line x1="100" y1="420" x2="0" y2="600" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="250" y1="420" x2="180" y2="600" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="400" y1="420" x2="400" y2="600" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="550" y1="420" x2="620" y2="600" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="700" y1="420" x2="800" y2="600" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="50" y1="460" x2="750" y2="460" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="30" y1="510" x2="770" y2="510" stroke="#FFFFFF" stroke-width="1.5" />
+    <line x1="10" y1="560" x2="790" y2="560" stroke="#FFFFFF" stroke-width="1.5" />
+  </g>
+
+  <!-- 1. Central Textile ERP Workstation Screen -->
+  <g filter="url(#cardShadow)">
+    <rect x="180" y="70" width="440" height="280" rx="16" fill="#0F172A" stroke="rgba(99,102,241,0.4)" stroke-width="1.5" />
+    <!-- Screen Header Bar -->
+    <rect x="180" y="70" width="440" height="38" rx="16" fill="#1E293B" />
+    <circle cx="205" cy="89" r="5" fill="#EF4444" opacity="0.8" />
+    <circle cx="221" cy="89" r="5" fill="#F59E0B" opacity="0.8" />
+    <circle cx="237" cy="89" r="5" fill="#10B981" opacity="0.8" />
+    <text x="260" y="94" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="11" font-weight="600">ERP DOST · Apparel Operations Hub</text>
+    <rect x="520" y="80" width="86" height="18" rx="9" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.4)" stroke-width="1" />
+    <circle cx="532" cy="89" r="3" fill="#10B981" />
+    <text x="541" y="93" fill="#34D399" font-family="system-ui, sans-serif" font-size="9" font-weight="700">LIVE SYNC</text>
+
+    <!-- Production Telemetry Graph -->
+    <g transform="translate(204, 126)">
+      <!-- Panel 1: Cutting & Sewing Progress -->
+      <rect width="186" height="96" rx="10" fill="#1E293B" opacity="0.6" stroke="rgba(255,255,255,0.06)" />
+      <text x="14" y="22" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="10" font-weight="600">Daily Production Output</text>
+      <text x="14" y="44" fill="#FFFFFF" font-family="system-ui, sans-serif" font-size="18" font-weight="800">4,850 pcs</text>
+      <path d="M 14 74 Q 45 60 75 66 T 135 52 T 172 40" fill="none" stroke="#6366F1" stroke-width="2.5" stroke-linecap="round" />
+      <circle cx="172" cy="40" r="3.5" fill="#818CF8" />
+
+      <!-- Panel 2: Fabric Material Consumption -->
+      <g transform="translate(204, 0)">
+        <rect width="186" height="96" rx="10" fill="#1E293B" opacity="0.6" stroke="rgba(255,255,255,0.06)" />
+        <text x="14" y="22" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="10" font-weight="600">Fabric Utilization Efficiency</text>
+        <text x="14" y="44" fill="#38BDF8" font-family="system-ui, sans-serif" font-size="18" font-weight="800">97.4%</text>
+        <!-- Bar Indicators -->
+        <rect x="14" y="60" width="158" height="6" rx="3" fill="#334155" />
+        <rect x="14" y="60" width="154" height="6" rx="3" fill="url(#accentTeal)" />
+        <text x="14" y="82" fill="#64748B" font-family="system-ui, sans-serif" font-size="9">Pattern Yield Optimization active</text>
+      </g>
+    </g>
+
+    <!-- Lower Screen Metric Row -->
+    <g transform="translate(204, 240)">
+      <rect width="124" height="86" rx="8" fill="#1E293B" opacity="0.4" />
+      <text x="12" y="22" fill="#64748B" font-family="system-ui, sans-serif" font-size="9" font-weight="700" letter-spacing="0.5">KNITTING / DYE</text>
+      <text x="12" y="44" fill="#F1F5F9" font-family="system-ui, sans-serif" font-size="15" font-weight="700">12 Batches</text>
+      <rect x="12" y="56" width="60" height="4" rx="2" fill="#10B981" />
+
+      <g transform="translate(134, 0)">
+        <rect width="124" height="86" rx="8" fill="#1E293B" opacity="0.4" />
+        <text x="12" y="22" fill="#64748B" font-family="system-ui, sans-serif" font-size="9" font-weight="700" letter-spacing="0.5">QC PASS RATE</text>
+        <text x="12" y="44" fill="#F1F5F9" font-family="system-ui, sans-serif" font-size="15" font-weight="700">99.1%</text>
+        <rect x="12" y="56" width="60" height="4" rx="2" fill="#6366F1" />
+      </g>
+
+      <g transform="translate(268, 0)">
+        <rect width="124" height="86" rx="8" fill="#1E293B" opacity="0.4" />
+        <text x="12" y="22" fill="#64748B" font-family="system-ui, sans-serif" font-size="9" font-weight="700" letter-spacing="0.5">DISPATCH DUE</text>
+        <text x="12" y="44" fill="#F1F5F9" font-family="system-ui, sans-serif" font-size="15" font-weight="700">1,200 Sets</text>
+        <rect x="12" y="56" width="60" height="4" rx="2" fill="#F59E0B" />
+      </g>
+    </g>
+  </g>
+
+  <!-- 2. Industrial Garment Production Elements (Left & Right Flanks) -->
+
+  <!-- Left Side: Rolls of Fabric / Textile Storage -->
+  <g transform="translate(60, 360)" filter="url(#cardShadow)">
+    <rect width="180" height="180" rx="16" fill="#1E293B" stroke="rgba(255,255,255,0.08)" />
+    <text x="16" y="28" fill="#E2E8F0" font-family="system-ui, sans-serif" font-size="12" font-weight="700">Textile Inventory</text>
+    <text x="16" y="44" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="10">Kora Kapra &amp; Dyed Fabric</text>
+
+    <!-- Fabric Roll 1 -->
+    <g transform="translate(16, 62)">
+      <rect x="0" y="0" width="148" height="24" rx="6" fill="url(#fabricRoll)" />
+      <ellipse cx="140" cy="12" rx="6" ry="10" fill="#818CF8" />
+      <text x="12" y="16" fill="#FFFFFF" font-family="system-ui, sans-serif" font-size="9" font-weight="700">Cotton Combed 30s</text>
+    </g>
+    <!-- Fabric Roll 2 -->
+    <g transform="translate(16, 94)">
+      <rect x="0" y="0" width="148" height="24" rx="6" fill="#0284C7" />
+      <ellipse cx="140" cy="12" rx="6" ry="10" fill="#38BDF8" />
+      <text x="12" y="16" fill="#FFFFFF" font-family="system-ui, sans-serif" font-size="9" font-weight="700">Terry Fleece Navy</text>
+    </g>
+    <!-- Fabric Roll 3 -->
+    <g transform="translate(16, 126)">
+      <rect x="0" y="0" width="148" height="24" rx="6" fill="#0D9488" />
+      <ellipse cx="140" cy="12" rx="6" ry="10" fill="#2DD4BF" />
+      <text x="12" y="16" fill="#FFFFFF" font-family="system-ui, sans-serif" font-size="9" font-weight="700">Interlock Rib 2x2</text>
+    </g>
+  </g>
+
+  <!-- Right Side: Garment Finishing & Order Dispatch Badge -->
+  <g transform="translate(560, 360)" filter="url(#cardShadow)">
+    <rect width="180" height="180" rx="16" fill="#1E293B" stroke="rgba(255,255,255,0.08)" />
+    <text x="16" y="28" fill="#E2E8F0" font-family="system-ui, sans-serif" font-size="12" font-weight="700">Apparel Production</text>
+    <text x="16" y="44" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="10">Cutting → Stitching → QC</text>
+
+    <!-- CAD Pattern Cutting Box -->
+    <rect x="16" y="60" width="148" height="98" rx="8" fill="#0F172A" stroke="rgba(99,102,241,0.2)" />
+    <!-- Garment T-Shirt Vector Icon Blueprint -->
+    <path d="M 64 80 L 80 84 L 96 80 L 112 90 L 104 104 L 96 100 L 96 140 L 64 140 L 64 100 L 56 104 L 48 90 Z" fill="rgba(99,102,241,0.25)" stroke="#818CF8" stroke-width="1.5" stroke-linejoin="round" />
+    <path d="M 72 82 Q 80 92 88 82" fill="none" stroke="#818CF8" stroke-width="1.5" />
+    <circle cx="138" cy="80" r="8" fill="rgba(16,185,129,0.2)" stroke="#10B981" stroke-width="1" />
+    <path d="M 135 80 L 137 82 L 142 77" fill="none" stroke="#10B981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="122" y="104" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="9" font-weight="600">Ready</text>
+    <text x="115" y="140" fill="#34D399" font-family="system-ui, sans-serif" font-size="9" font-weight="700">100% QC</text>
+  </g>
+
+  <!-- Flow Connector Lines -->
+  <path d="M 240 450 Q 280 450 300 480 T 400 500 T 500 480 T 560 450" fill="none" stroke="url(#glowLine)" stroke-width="2" stroke-dasharray="6,4" />
+
+  <!-- Center Floating Status Badge -->
+  <g transform="translate(300, 480)" filter="url(#cardShadow)">
+    <rect width="200" height="42" rx="21" fill="#1E1B4B" stroke="rgba(129,140,248,0.5)" stroke-width="1" />
+    <circle cx="320" cy="501" r="5" fill="#10B981" />
+    <text x="334" y="505" fill="#E0E7FF" font-family="system-ui, sans-serif" font-size="11" font-weight="700">All Factory Lines In Sync</text>
+  </g>
+</svg>

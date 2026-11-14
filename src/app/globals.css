@@ -1139,31 +1139,25 @@ main .border-dashed.border-slate-300 {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   REUSABLE DECORATIVE CARD SYSTEM ACROSS THE ENTIRE ERP
-   Adds actual flowing waves and botanical leaf artwork to all cards, panels & widgets
+   OPTIONAL DECORATIVE WATERMARK SYSTEM
+   Applied ONLY when explicitly requested via .erp-card-watermark
+   Never applied broadly to main .bg-white or date cells/buttons
    ════════════════════════════════════════════════════════════════════════════ */
 
-main .bg-white,
-.erp-card {
+.erp-card-watermark {
   position: relative;
-  /* overflow: hidden is intentionally NOT set here globally.
-     The decorative ::before/::after pseudo-elements use pointer-events: none
-     and are positioned absolutely, so they do not need overflow:hidden on the parent.
-     Applying overflow:hidden here was clipping card content and making cards appear shorter. */
   border: 1px solid rgba(129, 140, 248, 0.18) !important;
   box-shadow: 0 2px 14px rgba(99, 102, 241, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03) !important;
 }
 
 /* Ensure all child elements inside cards stay above decorative layers */
-main .bg-white > *,
-.erp-card > * {
+.erp-card-watermark > * {
   position: relative;
   z-index: 1;
 }
 
 /* 1. Botanical Leaf Branch Watermark (Top-Right Corner) */
-main .bg-white::before,
-.erp-card::before {
+.erp-card-watermark::before {
   content: '';
   position: absolute;
   top: 0;
@@ -1179,8 +1173,7 @@ main .bg-white::before,
 }
 
 /* 2. Flowing Abstract Waves (Bottom-Right Corner) */
-main .bg-white::after,
-.erp-card::after {
+.erp-card-watermark::after {
   content: '';
   position: absolute;
   right: 0;
@@ -1241,15 +1234,13 @@ html.dark .erp-card {
 }
 
 /* Dark Mode Botanical Leaves (Luminous Electric Blue / Violet) */
-html.dark main .bg-white::before,
-html.dark .erp-card::before {
+html.dark .erp-card-watermark::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 95' fill='none'%3E%3Cpath d='M85 5 C 65 22, 45 50, 32 90' stroke='%2338BDF8' stroke-width='1.5' stroke-opacity='0.3' stroke-linecap='round'/%3E%3Cpath d='M64 26 C 48 18, 42 32, 58 39 C 68 43, 72 34, 64 26 Z' fill='%2338BDF8' fill-opacity='0.16' stroke='%2338BDF8' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Cpath d='M48 48 C 34 38, 28 54, 44 60 C 54 64, 58 54, 48 48 Z' fill='%23C084FC' fill-opacity='0.16' stroke='%23C084FC' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Cpath d='M70 42 C 84 34, 88 48, 76 54 C 68 58, 64 50, 70 42 Z' fill='%23818CF8' fill-opacity='0.16' stroke='%23818CF8' stroke-width='0.8' stroke-opacity='0.25'/%3E%3Ccircle cx='80' cy='15' r='2' fill='%2338BDF8' fill-opacity='0.35'/%3E%3Ccircle cx='22' cy='52' r='1.8' fill='%23C084FC' fill-opacity='0.3'/%3E%3C/svg%3E");
   opacity: 0.6;
 }
 
 /* Dark Mode Flowing Waves (Luminous Electric Blue / Violet Curves) */
-html.dark main .bg-white::after,
-html.dark .erp-card::after {
+html.dark .erp-card-watermark::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 80' fill='none' preserveAspectRatio='none'%3E%3Cpath d='M0 80 C 45 42, 105 75, 170 38 L 170 80 Z' fill='url(%23darkWave1)'/%3E%3Cpath d='M30 80 C 75 52, 125 74, 170 56 L 170 80 Z' fill='url(%23darkWave2)'/%3E%3Cdefs%3E%3ClinearGradient id='darkWave1' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236366F1' stop-opacity='0.25'/%3E%3Cstop offset='50%25' stop-color='%238B5CF6' stop-opacity='0.18'/%3E%3Cstop offset='100%25' stop-color='%2338BDF8' stop-opacity='0.1'/%3E%3C/linearGradient%3E%3ClinearGradient id='darkWave2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2338BDF8' stop-opacity='0.2'/%3E%3Cstop offset='100%25' stop-color='%236366F1' stop-opacity='0.08'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
   opacity: 0.7;
 }

@@ -10,6 +10,7 @@ import { preventDuplicateSubmit } from '@/lib/prevent-duplicate-submit.js';
 import { apiFetch } from '@/lib/apiFetch.js';
 import { BUILT_IN_ROLES } from '@/lib/role-definitions.js';
 import ApprovalMatrix from '@/components/ApprovalMatrix';
+import { evaluatePasswordStrength } from '@/lib/password-policy.js';
 import {
   ShieldAlert,
   Building2,
@@ -24,6 +25,11 @@ import {
   Tag,
   Scale,
   Link,
+  KeyRound,
+  ShieldCheck,
+  Copy,
+  ExternalLink,
+  Check,
 } from 'lucide-react';
 
 export default function AdministrationPage() {
@@ -52,6 +58,86 @@ export default function AdministrationPage() {
     phone: '',
   });
 
+  // Client Handover state
+  const [handoverInvitations, setHandoverInvitations] = useState([]);
+  const [handoverEmail, setHandoverEmail] = useState('');
+  const [handoverName, setHandoverName] = useState('');
+  const [handoverLoading, setHandoverLoading] = useState(false);
+  const [generatedInviteUrl, setGeneratedInviteUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const fetchHandoverInvitations = async () => {
+    try {
+      const res = await apiFetch('/api/auth/handover');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data?.invitations)) {
+        setHandoverInvitations(json.data.invitations);
+      }
+    } catch (err) {
+      console.error('Failed to load handover invitations:', err);
+    }
+  };
+
+  const handleGenerateHandover = async (e) => {
+    e.preventDefault();
+    if (!handoverEmail || !handoverName) {
+      addToast('Client email and name are required', 'error');
+      return;
+    }
+    setHandoverLoading(true);
+    try {
+      const res = await apiFetch('/api/auth/handover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'CREATE_INVITATION',
+          clientEmail: handoverEmail,
+          clientName: handoverName,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        addToast(json.message || 'Failed to generate invitation', 'error');
+        return;
+      }
+      const fullUrl = `${window.location.origin}${json.data.inviteUrl}`;
+      setGeneratedInviteUrl(fullUrl);
+      addToast('Handover invitation generated successfully!', 'success');
+      setHandoverEmail('');
+      setHandoverName('');
+      void fetchHandoverInvitations();
+    } catch (err) {
+      addToast(err.message || 'Error generating handover invitation', 'error');
+    } finally {
+      setHandoverLoading(false);
+    }
+  };
+
+  const handleDeactivateDeveloper = async (developerEmail) => {
+    if (!window.confirm(`Are you sure you want to deactivate developer account (${developerEmail})? Ensure you have already verified the client SuperAdmin login.`)) {
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/auth/handover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'DEACTIVATE_PREVIOUS_ADMIN',
+          developerEmail,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        addToast(json.message || 'Failed to deactivate account', 'error');
+        return;
+      }
+      addToast(json.message || 'Developer account deactivated successfully', 'success');
+      void fetchData();
+    } catch (err) {
+      addToast(err.message || 'Error deactivating account', 'error');
+    }
+  };
+
   const fetchData = async () => {
     try {
       const res = await apiFetch('/api/administration');
@@ -72,6 +158,11 @@ export default function AdministrationPage() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
+    const strength = evaluatePasswordStrength(newUser.password);
+    if (!strength.isValid) {
+      addToast('Password must meet complexity criteria: min 12 chars, uppercase, lowercase, number, and special character', 'error');
+      return;
+    }
     try {
       const res = await apiFetch('/api/administration', {
         method: 'POST',
@@ -103,6 +194,11 @@ export default function AdministrationPage() {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (!resetPasswordUser || !newPassword) return;
+    const strength = evaluatePasswordStrength(newPassword);
+    if (!strength.isValid) {
+      addToast('New password must meet complexity criteria: min 12 chars, uppercase, lowercase, number, and special character', 'error');
+      return;
+    }
     try {
       const res = await apiFetch('/api/administration', {
         method: 'POST',
@@ -317,6 +413,20 @@ export default function AdministrationPage() {
           >
             <Link className="w-4 h-4" />
             <span>Accounting Mappings</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('handover');
+              void fetchHandoverInvitations();
+            }}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === 'handover'
+                ? 'border-[#4F46E5] text-[#4F46E5]'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Client Handover</span>
           </button>
         </div>
 
@@ -846,6 +956,219 @@ export default function AdministrationPage() {
           </div>
         )}
 
+        {/* Tab 6: Client Handover */}
+        {activeTab === 'handover' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Generator Card */}
+              <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center font-bold">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">Issue Handover Invitation</h2>
+                    <p className="text-[11px] text-slate-500">Generate secure one-time client SuperAdmin link</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleGenerateHandover} className="space-y-3.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Client Email Address
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={handoverEmail}
+                      onChange={(e) => setHandoverEmail(e.target.value)}
+                      placeholder="client.admin@company.com"
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Client Administrator Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={handoverName}
+                      onChange={(e) => setHandoverName(e.target.value)}
+                      placeholder="Client Name / Factory Owner"
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1 text-amber-800">
+                      <ShieldAlert className="w-3.5 h-3.5" /> Single-Use Token Security
+                    </div>
+                    <p>
+                      Generates a 64-character crypto token valid for 48 hours. The client will set their own complex password without needing your credentials.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={handoverLoading || !handoverEmail || !handoverName}
+                    className="w-full py-2.5 px-4 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {handoverLoading ? 'Generating Link...' : 'Generate Handover Link'}
+                  </button>
+                </form>
+
+                {generatedInviteUrl && (
+                  <div className="mt-4 p-3.5 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-900">One-Time Handover Link</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedInviteUrl);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                        className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1"
+                      >
+                        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                      </button>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-indigo-100 text-[11px] font-mono break-all text-slate-700">
+                      {generatedInviteUrl}
+                    </div>
+                    <p className="text-[10px] text-indigo-800">
+                      Share this URL securely with the client. It will expire in 48 hours or immediately upon first claim.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Status and Safe Deactivation */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Developer Account Deactivation Card */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">Handover Lifecycle & Developer Safety</h3>
+                        <p className="text-[11px] text-slate-500">Safely deactivate developer access only after client login is verified</p>
+                      </div>
+                    </div>
+                    {data?.users?.some((u) => u.email === 'zainabasghar307@gmail.com' && u.isActive === false) ? (
+                      <span className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+                        Developer Account Deactivated
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 text-[11px] font-bold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
+                        Preserved Developer Active
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-slate-600">
+                    ERP DOST guarantees continuous administrative availability. The developer SuperAdmin (<span className="font-mono text-slate-800">zainabasghar307@gmail.com</span>) remains fully functional until the client successfully claims ownership and establishes a verified client SuperAdmin account.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">Active SuperAdmins: {(data?.users || []).filter((u) => u.role === 'SuperAdmin' && u.isActive !== false).length}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {(data?.users || []).filter((u) => u.role === 'SuperAdmin' && u.isActive !== false).length >= 2
+                          ? 'Client SuperAdmin verified. You can now safely retire the developer account.'
+                          : 'Awaiting client SuperAdmin registration before developer deactivation is unlocked.'}
+                      </div>
+                    </div>
+
+                    {(data?.users || []).some((u) => u.email === 'zainabasghar307@gmail.com' && u.isActive !== false) && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeactivateDeveloper('zainabasghar307@gmail.com')}
+                        disabled={(data?.users || []).filter((u) => u.role === 'SuperAdmin' && u.isActive !== false).length < 2}
+                        className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors shadow-xs"
+                      >
+                        Deactivate Developer Account
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Handover Invitations Table */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">Handover Invitation History</h3>
+                      <p className="text-[11px] text-slate-500">Track claim status, audit trails and token lifecycle</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fetchHandoverInvitations()}
+                      className="text-xs text-indigo-600 font-bold hover:underline"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {handoverInvitations.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400">
+                      No handover invitations generated yet. Use the form on the left to issue one.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs text-slate-600">
+                        <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-100">
+                          <tr>
+                            <th className="py-2.5 px-3">Client Email</th>
+                            <th className="py-2.5 px-3">Name</th>
+                            <th className="py-2.5 px-3">Status</th>
+                            <th className="py-2.5 px-3">Created</th>
+                            <th className="py-2.5 px-3">Expires / Claimed</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {handoverInvitations.map((inv) => {
+                            const isExpired = !inv.used && new Date(inv.expiresAt) < new Date();
+                            return (
+                              <tr key={inv.id} className="hover:bg-slate-50/50">
+                                <td className="py-2.5 px-3 font-medium text-slate-900 font-mono text-[11px]">{inv.clientEmail}</td>
+                                <td className="py-2.5 px-3">{inv.clientName}</td>
+                                <td className="py-2.5 px-3">
+                                  {inv.used ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      Claimed
+                                    </span>
+                                  ) : isExpired ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                      Expired
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                      Pending Claim
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-[11px] text-slate-500">{new Date(inv.createdAt).toLocaleString()}</td>
+                                <td className="py-2.5 px-3 text-[11px] text-slate-500">
+                                  {inv.used ? `Claimed: ${new Date(inv.usedAt).toLocaleString()}` : `Expires: ${new Date(inv.expiresAt).toLocaleString()}`}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal: Add User */}
         <Modal
           isOpen={isAddUserOpen}
@@ -874,7 +1197,7 @@ export default function AdministrationPage() {
                   required
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                  placeholder="name@bilalgarments.pk"
+                  placeholder="name@company.com"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-[#4F46E5]"
                 />
               </div>
